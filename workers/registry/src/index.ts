@@ -1,10 +1,21 @@
 /**
  * CerebreX Registry — Cloudflare Worker
- * Handles publish, install, and search for MCP server packages.
+ * Handles publish, install, search, and web UI for MCP server packages.
  *
  * Bindings:
  *   DB       — D1 database (package metadata)
  *   TARBALLS — KV namespace (tarball blobs)
+ *
+ * Routes:
+ *   GET  /              — Registry browser UI (HTML)
+ *   GET  /ui/trace      — Hosted trace explorer UI (HTML)
+ *   GET  /v1/packages   — list / search packages (JSON API)
+ *   POST /v1/packages   — publish a package
+ *   GET  /v1/packages/:name              — all versions
+ *   GET  /v1/packages/:name/:version     — specific version metadata
+ *   GET  /v1/packages/:name/:version/download — download tarball
+ *   DELETE /v1/packages/:name/:version   — unpublish (auth required)
+ *   GET  /health        — liveness check
  */
 
 export interface Env {
@@ -30,13 +41,18 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+function html(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+}
+
 function err(message: string, status = 400): Response {
   return json({ success: false, error: message }, status);
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-// For MVP: any non-empty Bearer token is accepted for publish.
-// v0.4 will add proper account registration + token validation.
 
 function getToken(req: Request): string | null {
   const auth = req.headers.get('Authorization');
@@ -57,10 +73,21 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
-    // GET /                      — health check
-    if (pathname === '/' && method === 'GET') {
-      return json({ name: 'CerebreX Registry', version: '1.0.0', status: 'ok' });
+    // ── Web UI routes ──────────────────────────────────────────────────────
+    if (method === 'GET' && (pathname === '/' || pathname === '/ui' || pathname === '/ui/')) {
+      return html(registryUI());
     }
+
+    if (method === 'GET' && (pathname === '/ui/trace' || pathname === '/ui/trace/')) {
+      return html(traceUI());
+    }
+
+    // ── Health ─────────────────────────────────────────────────────────────
+    if (pathname === '/health' && method === 'GET') {
+      return json({ status: 'ok', version: '1.0.0' });
+    }
+
+    // ── API v1 ─────────────────────────────────────────────────────────────
 
     // GET /v1/packages           — list / search packages
     if (pathname === '/v1/packages' && method === 'GET') {
@@ -72,37 +99,448 @@ export default {
       return handlePublish(request, env);
     }
 
-    // GET /v1/packages/:name     — get all versions of a package
+    // GET /v1/packages/:name
     const pkgMatch = pathname.match(/^\/v1\/packages\/([^/]+)$/);
     if (pkgMatch && method === 'GET') {
       return handleGetPackage(env, decodeURIComponent(pkgMatch[1]));
     }
 
-    // GET /v1/packages/:name/:version            — get specific version metadata
+    // GET|DELETE /v1/packages/:name/:version
     const versionMatch = pathname.match(/^\/v1\/packages\/([^/]+)\/([^/]+)$/);
     if (versionMatch && method === 'GET') {
       const [, name, version] = versionMatch;
       return handleGetVersion(env, decodeURIComponent(name), decodeURIComponent(version));
     }
+    if (versionMatch && method === 'DELETE') {
+      const [, name, version] = versionMatch;
+      return handleUnpublish(request, env, decodeURIComponent(name), decodeURIComponent(version));
+    }
 
-    // GET /v1/packages/:name/:version/download   — download tarball
+    // GET /v1/packages/:name/:version/download
     const downloadMatch = pathname.match(/^\/v1\/packages\/([^/]+)\/([^/]+)\/download$/);
     if (downloadMatch && method === 'GET') {
       const [, name, version] = downloadMatch;
       return handleDownload(env, decodeURIComponent(name), decodeURIComponent(version));
     }
 
-    // DELETE /v1/packages/:name/:version         — unpublish (auth required)
-    if (versionMatch && method === 'DELETE') {
-      const [, name, version] = versionMatch;
-      return handleUnpublish(request, env, decodeURIComponent(name), decodeURIComponent(version));
-    }
-
     return err('Not found', 404);
   },
 };
 
-// ── Handlers ──────────────────────────────────────────────────────────────────
+// ── Web UI — Registry Browser ─────────────────────────────────────────────────
+
+function registryUI(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>CerebreX Registry</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0d0d0f;--surface:#16161a;--border:#2a2a30;
+      --text:#e8e8f0;--muted:#6b6b80;
+      --cyan:#00c8e0;--green:#22d3a0;--yellow:#f5a623;--red:#f56060;--purple:#a560f5;
+    }
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 32px;display:flex;align-items:center;gap:16px}
+    .logo{font-size:20px;font-weight:700;color:var(--cyan);letter-spacing:-0.5px}
+    .logo span{color:var(--muted);font-weight:400;font-size:14px}
+    .header-links{margin-left:auto;display:flex;gap:16px;align-items:center}
+    .header-links a{color:var(--muted);text-decoration:none;font-size:13px;transition:color .1s}
+    .header-links a:hover{color:var(--text)}
+    .hero{padding:48px 32px 32px;text-align:center}
+    .hero h1{font-size:28px;font-weight:700;margin-bottom:8px}
+    .hero p{color:var(--muted);font-size:15px;margin-bottom:28px}
+    .search-wrap{max-width:560px;margin:0 auto;position:relative}
+    .search-wrap input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px 12px 44px;font-size:15px;color:var(--text);outline:none;transition:border-color .15s}
+    .search-wrap input:focus{border-color:var(--cyan)}
+    .search-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:18px;pointer-events:none}
+    .content{max-width:1100px;margin:0 auto;padding:24px 32px}
+    .stats-row{display:flex;gap:8px;align-items:center;margin-bottom:20px;font-size:13px;color:var(--muted)}
+    .stats-row strong{color:var(--text)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;cursor:pointer;transition:border-color .1s,transform .1s}
+    .card:hover{border-color:var(--cyan);transform:translateY(-1px)}
+    .card-name{font-size:15px;font-weight:600;color:var(--cyan);margin-bottom:4px}
+    .card-desc{font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.5;min-height:38px}
+    .card-footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .tag{background:rgba(0,200,224,.1);color:var(--cyan);border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600}
+    .version-badge{color:var(--muted);font-size:11px;margin-left:auto}
+    .empty{text-align:center;padding:64px 32px;color:var(--muted);font-size:15px}
+    .loading{text-align:center;padding:64px;color:var(--muted)}
+    /* Modal */
+    .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:24px}
+    .overlay.show{display:flex}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:600px;max-height:85vh;overflow-y:auto}
+    .modal-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+    .modal-title{font-size:18px;font-weight:700;color:var(--cyan)}
+    .modal-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1}
+    .modal-close:hover{color:var(--text)}
+    .modal-body{padding:24px}
+    .modal-desc{color:var(--muted);font-size:14px;line-height:1.6;margin-bottom:20px}
+    .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:8px}
+    .install-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:monospace;font-size:13px;display:flex;align-items:center;gap:10px;margin-bottom:20px}
+    .install-cmd{flex:1;word-break:break-all}
+    .copy-btn{background:var(--border);border:none;color:var(--text);border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;transition:background .1s}
+    .copy-btn:hover{background:var(--cyan);color:var(--bg)}
+    .versions-list{display:flex;flex-direction:column;gap:6px}
+    .version-row{display:flex;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px}
+    .version-row .v{color:var(--cyan);font-weight:600;margin-right:auto}
+    .version-row .date{color:var(--muted);font-size:11px}
+    .tags-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px}
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+    @media(max-width:600px){.content{padding:16px}.hero{padding:32px 16px 20px}.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo">CerebreX <span>Registry</span></div>
+  <div class="header-links">
+    <a href="/ui/trace">Trace Explorer</a>
+    <a href="https://github.com/therealcoolnerd/CerebreX" target="_blank">GitHub</a>
+    <a href="https://www.npmjs.com/package/cerebrex" target="_blank">npm</a>
+  </div>
+</header>
+<div class="hero">
+  <h1>MCP Server Registry</h1>
+  <p>Discover and install community MCP servers for your AI agents</p>
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="search" placeholder="Search packages..." autocomplete="off"/>
+  </div>
+</div>
+<div class="content">
+  <div class="stats-row" id="stats">Loading...</div>
+  <div class="grid" id="grid"><div class="loading">Loading packages...</div></div>
+</div>
+
+<!-- Package detail modal -->
+<div class="overlay" id="overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-name"></div>
+      <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('show')">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+let allPackages = [];
+let searchTimer = null;
+
+async function load(q = '') {
+  const url = '/v1/packages?limit=100' + (q ? '&q=' + encodeURIComponent(q) : '');
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    allPackages = d.packages || [];
+    render(allPackages, q);
+    document.getElementById('stats').innerHTML =
+      '<strong>' + (d.count || 0) + '</strong>&nbsp;packages' + (q ? ' matching <strong>"' + esc(q) + '"</strong>' : '');
+  } catch(e) {
+    document.getElementById('grid').innerHTML = '<div class="empty">Failed to load packages. Check the registry is running.</div>';
+  }
+}
+
+function render(pkgs) {
+  const grid = document.getElementById('grid');
+  if (!pkgs.length) { grid.innerHTML = '<div class="empty">No packages found.</div>'; return; }
+  grid.innerHTML = pkgs.map((p, i) =>
+    '<div class="card" onclick="showDetail(' + i + ')">' +
+      '<div class="card-name">' + esc(p.name) + '</div>' +
+      '<div class="card-desc">' + esc(p.description || 'No description') + '</div>' +
+      '<div class="card-footer">' +
+        (p.tags||[]).slice(0,3).map(t => '<span class="tag">' + esc(t) + '</span>').join('') +
+        '<span class="version-badge">v' + esc(p.version) + '</span>' +
+      '</div>' +
+    '</div>'
+  ).join('');
+}
+
+function showDetail(i) {
+  const p = allPackages[i];
+  document.getElementById('modal-name').textContent = p.name;
+  const tags = (p.tags||[]).map(t => '<span class="tag">' + esc(t) + '</span>').join('');
+  document.getElementById('modal-body').innerHTML =
+    '<div class="modal-desc">' + esc(p.description || 'No description provided.') + '</div>' +
+    (tags ? '<div class="section-label">Tags</div><div class="tags-row">' + tags + '</div>' : '') +
+    '<div class="section-label">Install</div>' +
+    '<div class="install-box">' +
+      '<span class="install-cmd">cerebrex install ' + esc(p.name) + '</span>' +
+      '<button class="copy-btn" onclick="copyInstall(\''+esc(p.name)+'\',this)">Copy</button>' +
+    '</div>' +
+    '<div class="section-label">Latest Version</div>' +
+    '<div class="versions-list">' +
+      '<div class="version-row"><span class="v">v' + esc(p.version) + '</span><span class="date">' + fmtDate(p.published_at) + '</span></div>' +
+    '</div>' +
+    '<div style="margin-top:16px;font-size:12px;color:var(--muted)">Published by ' + esc(p.author||'unknown') + ' · ' + fmtSize(p.tarball_size) + '</div>';
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closeModal(e) { if (e.target === document.getElementById('overlay')) document.getElementById('overlay').classList.remove('show'); }
+
+function copyInstall(name, btn) {
+  navigator.clipboard.writeText('cerebrex install ' + name).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  });
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtDate(iso) { try { return new Date(iso).toLocaleDateString(); } catch { return iso||''; } }
+function fmtSize(b) { if(!b) return ''; return b < 1024 ? b+'B' : b < 1048576 ? (b/1024).toFixed(1)+'KB' : (b/1048576).toFixed(1)+'MB'; }
+
+document.getElementById('search').addEventListener('input', e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => load(e.target.value.trim()), 300);
+});
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('overlay').classList.remove('show'); });
+
+load();
+</script>
+</body>
+</html>`;
+}
+
+// ── Web UI — Trace Explorer ───────────────────────────────────────────────────
+
+function traceUI(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>CerebreX — Trace Explorer</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0d0d0f;--surface:#16161a;--border:#2a2a30;
+      --text:#e8e8f0;--muted:#6b6b80;
+      --cyan:#00c8e0;--green:#22d3a0;--yellow:#f5a623;--red:#f56060;--purple:#a560f5;
+    }
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:16px}
+    .logo{font-size:18px;font-weight:700;color:var(--cyan);letter-spacing:-0.5px}
+    .logo span{color:var(--muted);font-weight:400}
+    .header-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+    .header-right a{color:var(--muted);text-decoration:none;font-size:13px}
+    .header-right a:hover{color:var(--text)}
+    .app{display:flex;flex:1;overflow:hidden;height:calc(100vh - 53px)}
+    .sidebar{width:280px;min-width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+    .sidebar-header{padding:12px 16px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+    .session-list{flex:1;overflow-y:auto;padding:8px}
+    .session-item{padding:10px 12px;border-radius:6px;cursor:pointer;border:1px solid transparent;margin-bottom:2px;transition:background .1s}
+    .session-item:hover{background:rgba(255,255,255,.05)}
+    .session-item.active{background:rgba(0,200,224,.08);border-color:var(--cyan)}
+    .session-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .session-meta{font-size:11px;color:var(--muted);margin-top:3px}
+    .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+    .drop-zone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;border:2px dashed var(--border);margin:32px;border-radius:16px;cursor:pointer;transition:border-color .15s}
+    .drop-zone:hover,.drop-zone.drag{border-color:var(--cyan)}
+    .drop-zone .icon{font-size:48px}
+    .drop-zone h2{font-size:18px;font-weight:600}
+    .drop-zone p{color:var(--muted);font-size:14px;text-align:center}
+    .btn{padding:8px 18px;border-radius:6px;font-size:13px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;transition:background .1s;font-family:inherit}
+    .btn:hover{background:rgba(255,255,255,.06)}
+    .btn-primary{background:var(--cyan);color:var(--bg);border-color:var(--cyan)}
+    .btn-primary:hover{background:#00b0c8}
+    .trace-header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    .trace-title{font-size:16px;font-weight:600}
+    .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600}
+    .badge-green{background:rgba(34,211,160,.15);color:var(--green)}
+    .badge-yellow{background:rgba(245,166,35,.15);color:var(--yellow)}
+    .stats-row{display:flex;gap:24px;margin-left:auto}
+    .stat{text-align:right}
+    .stat-value{font-size:15px;font-weight:600;color:var(--cyan)}
+    .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+    .timeline{flex:1;overflow-y:auto;padding:16px 24px}
+    .step{display:flex;gap:16px;margin-bottom:8px;position:relative}
+    .step::before{content:'';position:absolute;left:19px;top:36px;bottom:-8px;width:2px;background:var(--border)}
+    .step:last-child::before{display:none}
+    .step-icon{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;border:2px solid transparent}
+    .step-body{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;cursor:pointer;transition:border-color .1s}
+    .step-body:hover{border-color:var(--muted)}
+    .step-body.expanded{border-color:var(--cyan)}
+    .step-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .step-type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:2px 6px;border-radius:4px}
+    .step-name{font-size:13px;font-weight:500}
+    .step-meta{margin-left:auto;display:flex;gap:12px;align-items:center}
+    .step-meta span{font-size:11px;color:var(--muted)}
+    .step-details{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+    .step-details.show{display:block}
+    .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .detail-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
+    .detail-value{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto}
+    .type-tool_call{background:rgba(0,200,224,.12);color:var(--cyan)}
+    .icon-tool_call{background:rgba(0,200,224,.12);border-color:var(--cyan)}
+    .type-llm_call{background:rgba(160,96,245,.12);color:var(--purple)}
+    .icon-llm_call{background:rgba(160,96,245,.12);border-color:var(--purple)}
+    .type-memory_read,.type-memory_write{background:rgba(34,211,160,.12);color:var(--green)}
+    .icon-memory_read,.icon-memory_write{background:rgba(34,211,160,.12);border-color:var(--green)}
+    .type-error{background:rgba(245,96,96,.12);color:var(--red)}
+    .icon-error{background:rgba(245,96,96,.12);border-color:var(--red)}
+    .type-custom{background:rgba(245,166,35,.12);color:var(--yellow)}
+    .icon-custom{background:rgba(245,166,35,.12);border-color:var(--yellow)}
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo">CerebreX <span>Trace Explorer</span></div>
+  <div class="header-right">
+    <a href="/ui">Registry</a>
+    <label class="btn" for="file-input" style="cursor:pointer">Load Trace</label>
+    <input type="file" id="file-input" accept=".json" multiple style="display:none"/>
+  </div>
+</header>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span>Sessions</span>
+      <span id="session-count" style="color:var(--cyan)">0</span>
+    </div>
+    <div class="session-list" id="session-list"></div>
+  </div>
+  <div class="main" id="main-area">
+    <div class="drop-zone" id="drop-zone">
+      <div class="icon">🔍</div>
+      <h2>Drop a trace file here</h2>
+      <p>or click to browse for a JSON trace file<br>exported with <code style="color:var(--cyan)">cerebrex trace view --session &lt;id&gt;</code></p>
+      <label class="btn btn-primary" for="file-input">Browse Files</label>
+    </div>
+    <div id="trace-view" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+      <div class="trace-header" id="trace-header"></div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </div>
+</div>
+<script>
+const sessions = new Map();
+let activeSession = null;
+const ICONS = {tool_call:'🔧',llm_call:'🤖',memory_read:'📖',memory_write:'💾',error:'❌',custom:'⚡'};
+const getIcon = t => ICONS[t]||ICONS.custom;
+const fmtMs = ms => !ms?'–':ms<1000?ms+'ms':(ms/1000).toFixed(1)+'s';
+const fmtTok = t => !t?'':t<1000?t+' tok':(t/1000).toFixed(1)+'k tok';
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+function loadTrace(data, name) {
+  const s = typeof data==='string'?JSON.parse(data):data;
+  const id = s.session||name||'trace-'+Date.now();
+  sessions.set(id, s);
+  renderSidebar();
+  selectSession(id);
+}
+
+function renderSidebar() {
+  document.getElementById('session-count').textContent = sessions.size;
+  const list = document.getElementById('session-list');
+  list.innerHTML='';
+  for(const [id,s] of sessions){
+    const steps=s.steps||[];
+    const ms=steps.reduce((a,b)=>a+(b.latencyMs||0),0);
+    const el=document.createElement('div');
+    el.className='session-item'+(activeSession===id?' active':'');
+    el.innerHTML='<div class="session-name">'+esc(s.session||id)+'</div><div class="session-meta">'+steps.length+' steps · '+fmtMs(ms)+'</div>';
+    el.addEventListener('click',()=>selectSession(id));
+    list.appendChild(el);
+  }
+}
+
+function selectSession(id){activeSession=id;renderSidebar();renderTrace(id);}
+
+function renderTrace(id) {
+  const s=sessions.get(id);
+  const steps=s.steps||[];
+  document.getElementById('drop-zone').style.display='none';
+  const tv=document.getElementById('trace-view');
+  tv.style.display='flex';
+  const ms=steps.reduce((a,b)=>a+(b.latencyMs||0),0);
+  const tok=steps.reduce((a,b)=>a+(b.tokens||0),0);
+  const errs=steps.filter(x=>x.type==='error').length;
+  document.getElementById('trace-header').innerHTML=
+    '<div class="trace-title">'+esc(s.session||id)+'</div>'+
+    (errs?'<span class="badge badge-yellow">'+errs+' error'+(errs>1?'s':'')+'</span>':'<span class="badge badge-green">Clean</span>')+
+    '<div class="stats-row">'+
+    '<div class="stat"><div class="stat-value">'+steps.length+'</div><div class="stat-label">Steps</div></div>'+
+    '<div class="stat"><div class="stat-value">'+fmtMs(ms)+'</div><div class="stat-label">Time</div></div>'+
+    (tok?'<div class="stat"><div class="stat-value">'+fmtTok(tok)+'</div><div class="stat-label">Tokens</div></div>':'')+
+    '</div>';
+  const tl=document.getElementById('timeline');
+  tl.innerHTML='';
+  if(!steps.length){tl.innerHTML='<div style="color:var(--muted);padding:32px;text-align:center">No steps recorded</div>';return;}
+  steps.forEach((step,i)=>{
+    const type=step.type||'custom',name=esc(step.toolName||step.name||type);
+    const el=document.createElement('div');
+    el.className='step';
+    const hasDetails=!!(step.inputs||step.outputs||step.error);
+    el.innerHTML=
+      '<div class="step-icon icon-'+type+'">'+getIcon(type)+'</div>'+
+      '<div class="step-body" id="sb'+i+'">'+
+        '<div class="step-top">'+
+          '<span class="step-type type-'+type+'">'+type.replace('_',' ')+'</span>'+
+          '<span class="step-name">'+name+'</span>'+
+          '<div class="step-meta">'+
+            (step.latencyMs?'<span>⏱ '+fmtMs(step.latencyMs)+'</span>':'')+
+            (step.tokens?'<span>'+fmtTok(step.tokens)+'</span>':'')+
+          '</div>'+
+        '</div>'+
+        (hasDetails?
+          '<div class="step-details" id="sd'+i+'">'+
+            '<div class="detail-grid">'+
+              (step.inputs?'<div><div class="detail-label">Inputs</div><div class="detail-value">'+esc(JSON.stringify(step.inputs,null,2))+'</div></div>':'')+
+              (step.outputs?'<div><div class="detail-label">Outputs</div><div class="detail-value">'+esc(JSON.stringify(step.outputs,null,2))+'</div></div>':'')+
+              (step.error?'<div style="grid-column:span 2"><div class="detail-label" style="color:var(--red)">Error</div><div class="detail-value" style="color:var(--red)">'+esc(step.error)+'</div></div>':'')+
+            '</div>'+
+          '</div>'
+        :'')+
+      '</div>';
+    if(hasDetails){
+      el.querySelector('#sb'+i).addEventListener('click',()=>{
+        el.querySelector('#sd'+i).classList.toggle('show');
+        el.querySelector('#sb'+i).classList.toggle('expanded');
+      });
+    }
+    tl.appendChild(el);
+  });
+}
+
+// File input
+document.getElementById('file-input').addEventListener('change',e=>{
+  for(const f of e.target.files){
+    const r=new FileReader();
+    r.onload=ev=>{try{loadTrace(ev.target.result,f.name.replace('.json',''));}catch(e2){alert('Could not parse '+f.name+': '+e2.message);}};
+    r.readAsText(f);
+  }
+});
+
+// Drag and drop
+const dz=document.getElementById('drop-zone');
+document.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
+document.addEventListener('dragleave',e=>{if(!e.relatedTarget)dz.classList.remove('drag');});
+document.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('drag');
+  for(const f of e.dataTransfer.files){
+    if(!f.name.endsWith('.json'))continue;
+    const r=new FileReader();
+    r.onload=ev=>{try{loadTrace(ev.target.result,f.name.replace('.json',''));}catch(e2){alert('Could not parse '+f.name);}};
+    r.readAsText(f);
+  }
+});
+</script>
+</body>
+</html>`;
+}
+
+// ── API Handlers ──────────────────────────────────────────────────────────────
 
 async function handleList(env: Env, params: URLSearchParams): Promise<Response> {
   const q = params.get('q') || '';
@@ -139,7 +577,7 @@ async function handlePublish(request: Request, env: Env): Promise<Response> {
     version?: string;
     description?: string;
     tags?: string[];
-    tarball?: string; // base64-encoded .tgz
+    tarball?: string;
   };
 
   try {
@@ -154,15 +592,12 @@ async function handlePublish(request: Request, env: Env): Promise<Response> {
   if (!version || typeof version !== 'string') return err('version is required');
   if (!tarball || typeof tarball !== 'string') return err('tarball (base64) is required');
 
-  // Validate semver loosely
   if (!/^\d+\.\d+\.\d+/.test(version)) return err('version must be semver (e.g. 1.0.0)');
 
-  // Validate package name
   if (!/^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9\-_.]*$/.test(name)) {
     return err('Invalid package name. Use lowercase letters, numbers, hyphens, and dots.');
   }
 
-  // Decode and store tarball
   let tarballBytes: Uint8Array;
   try {
     const binary = atob(tarball);
@@ -178,19 +613,16 @@ async function handlePublish(request: Request, env: Env): Promise<Response> {
 
   const tarballKey = `${name}@${version}.tgz`;
 
-  // Check duplicate
   const existing = await env.DB.prepare(
     'SELECT id FROM packages WHERE name = ? AND version = ?'
   ).bind(name, version).first();
 
   if (existing) return err(`${name}@${version} already published. Bump the version.`, 409);
 
-  // Store tarball in KV
   await env.TARBALLS.put(tarballKey, tarballBytes.buffer as ArrayBuffer);
 
-  // Store metadata in D1
   const publishedAt = new Date().toISOString();
-  const author = token.slice(0, 8) + '...'; // store prefix only, never full token
+  const author = token.slice(0, 8) + '...';
   await env.DB.prepare(
     `INSERT INTO packages (name, version, description, author, tags, tarball_key, tarball_size, published_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -203,7 +635,7 @@ async function handlePublish(request: Request, env: Env): Promise<Response> {
   return json({
     success: true,
     package: { name, version, description, tags, tarball_size: tarballBytes.length, published_at: publishedAt },
-    url: `https://registry.cerebrex.dev/v1/packages/${encodeURIComponent(name)}/${version}`,
+    url: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev/v1/packages/${encodeURIComponent(name)}/${version}`,
   }, 201);
 }
 
@@ -214,9 +646,7 @@ async function handleGetPackage(env: Env, name: string): Promise<Response> {
   ).bind(name).all();
 
   if (!results?.length) return err(`Package '${name}' not found`, 404);
-
-  const versions = (results).map(parsePackageRow);
-  return json({ success: true, name, versions });
+  return json({ success: true, name, versions: results.map(parsePackageRow) });
 }
 
 async function handleGetVersion(env: Env, name: string, version: string): Promise<Response> {
@@ -239,7 +669,7 @@ async function handleGetVersion(env: Env, name: string, version: string): Promis
   return json({
     success: true,
     ...pkg,
-    download_url: `https://registry.cerebrex.dev/v1/packages/${encodeURIComponent(name)}/${resolvedVersion}/download`,
+    download_url: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev/v1/packages/${encodeURIComponent(name)}/${resolvedVersion}/download`,
   });
 }
 
