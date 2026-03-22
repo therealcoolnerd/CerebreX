@@ -6,6 +6,62 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.3.1] — 2026-03-22
+
+### Fix
+- `cerebrex validate <path>` now correctly uses the provided positional argument instead of always defaulting to `./cerebrex-output` (root cause: stale tsc-compiled `.js` artifacts in `src/` were shadowing `.ts` sources during bun bundling)
+- Deleted all intermediate `.js`/`.d.ts` files from `src/` to prevent recurrence
+- Added `"type": "module"` to CLI `package.json` — eliminates Node.js ESM reparsing warning
+- Registry API paths corrected: `registry-client` now uses `/v1/` routes matching deployed Worker
+- `publish()` method updated to send JSON + base64 tarball (Worker expects JSON, not FormData)
+- Wired live registry URL throughout: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
+
+---
+
+## [0.3.0] — 2026-03-22
+
+### HIVE — Multi-Agent Coordination (New)
+- `cerebrex hive init` — initialize HIVE coordinator config with JWT secret
+- `cerebrex hive start` — local HTTP coordinator on port 7433 with JWT-signed agent auth
+- `cerebrex hive register` — register an agent, receive a 24h JWT token
+- `cerebrex hive status` — live view of connected agents and task queue
+- `cerebrex hive send` — dispatch tasks to registered agents with JWT auth
+- HMAC-SHA256 JWT implementation (no external dependency)
+- State persisted to `~/.cerebrex/hive/state.json`
+
+### Registry Backend (New)
+- Cloudflare Worker deployed at `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
+- D1 database `cerebrex-registry` for package metadata (name, version, description, tags)
+- KV namespace `cerebrex-registry-tarballs` for tarball storage (up to 25MB per package)
+- REST API: `POST /v1/packages`, `GET /v1/packages`, `GET /v1/packages/:name/:version`, `GET /v1/packages/:name/:version/download`, `DELETE /v1/packages/:name/:version`
+- Bearer token auth for publish/unpublish operations
+- Package name and semver validation
+
+### Web Dashboard — Trace Explorer (New)
+- `cerebrex trace view --session <id> --web` — opens trace in visual browser dashboard
+- Self-contained HTML dashboard embedded in the CLI bundle (no external assets)
+- Timeline view with expandable step details (inputs/outputs/errors)
+- Per-step latency, token counts, error highlighting with color coding
+- Multi-session sidebar, drag-and-drop JSON file loading
+- Opens in system default browser with trace data pre-injected
+
+### CI/CD
+- Added `deploy-registry.yml` GitHub Actions workflow for automatic Worker deployment
+- Registry auto-deploys on push to `workers/registry/` with `CLOUDFLARE_API_TOKEN` secret
+
+---
+
+## [0.2.1] — 2026-03-22
+
+### Fix
+- Changed shebang from `#!/usr/bin/env bun` to `#!/usr/bin/env node` for npm binary compatibility
+- Removed all `workspace:*` dependencies from CLI `package.json` (bun bundles them anyway)
+- Added `"files": ["dist/"]` to CLI `package.json` — only ships the bundle
+- Removed `prepublishOnly` script to avoid double-build during `npm publish`
+- `npm install -g cerebrex` now works correctly
+
+---
+
 ## [0.2.0] — 2026-03-21
 
 ### MEMEX — Persistent Agent Memory (New)
