@@ -1,6 +1,6 @@
 {
   "name": "cerebrex",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "CerebreX CLI — The open-source Agent Infrastructure OS",
   "bin": {
     "cerebrex": "dist/index.js"

@@ -16,8 +16,9 @@ import { traceCommand } from './commands/trace.js';
 import { deployCommand, validateCommand, publishCommand, installCommand } from './commands/other-commands.js';
 import { memexCommand } from './commands/memex.js';
 import { authCommand } from './commands/auth.js';
+import { hiveCommand } from './commands/hive.js';
 
-const VERSION = '0.2.1';
+const VERSION = '0.3.0';
 
 const program = new Command();
 
@@ -52,6 +53,7 @@ program.addCommand(publishCommand);
 program.addCommand(installCommand);
 program.addCommand(memexCommand);
 program.addCommand(authCommand);
+program.addCommand(hiveCommand);
 
 // ── Handle Unknown Commands ───────────────────────────────────────────────────
 program.on('command:*', (operands) => {

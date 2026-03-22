@@ -1,0 +1,16 @@
+name = "cerebrex-registry"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cerebrex-registry"
+database_id = "8fd64267-21b3-4a60-9e97-ccdb88f6c782"
+
+[[kv_namespaces]]
+binding = "TARBALLS"
+id = "89ca3afce7ef46e38be3352ca293f3b5"
+
+[vars]
+ENVIRONMENT = "production"

@@ -106,9 +106,10 @@ traceCommand
 // cerebrex trace view
 traceCommand
   .command('view')
-  .description('View a recorded trace in the terminal')
+  .description('View a recorded trace in the terminal or browser')
   .requiredOption('-s, --session <id>', 'Session identifier to view')
   .option('--json', 'Output raw JSON instead of formatted view')
+  .option('--web', 'Open the trace in the visual web dashboard')
   .action(async (options) => {
     const tracePath = path.join(TRACES_DIR, `${options.session}.json`);
 
@@ -122,6 +123,12 @@ traceCommand
     if (options.json) {
       const raw = fs.readFileSync(tracePath, 'utf-8');
       console.log(raw);
+      return;
+    }
+
+    if (options.web) {
+      const { openTraceInBrowser } = await import('../core/trace/dashboard.js');
+      await openTraceInBrowser(tracePath, options.session);
       return;
     }
 

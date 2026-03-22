@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CerebreX — Trace Explorer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0f;
+      --surface: #16161a;
+      --border: #2a2a30;
+      --text: #e8e8f0;
+      --muted: #6b6b80;
+      --cyan: #00c8e0;
+      --green: #22d3a0;
+      --yellow: #f5a623;
+      --red: #f56060;
+      --blue: #6090f5;
+      --purple: #a560f5;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--cyan);
+      letter-spacing: -0.5px;
+    }
+
+    .logo span { color: var(--muted); font-weight: 400; }
+
+    .header-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ── Layout ── */
+    .app {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      height: calc(100vh - 53px);
+    }
+
+    .sidebar {
+      width: 280px;
+      min-width: 220px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .session-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .session-item {
+      padding: 10px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      margin-bottom: 2px;
+      transition: background 0.1s;
+    }
+
+    .session-item:hover { background: rgba(255,255,255,0.05); }
+    .session-item.active { background: rgba(0,200,224,0.08); border-color: var(--cyan); }
+
+    .session-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .session-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
+    /* ── Main ── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .trace-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .trace-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-cyan { background: rgba(0,200,224,0.15); color: var(--cyan); }
+    .badge-green { background: rgba(34,211,160,0.15); color: var(--green); }
+    .badge-yellow { background: rgba(245,166,35,0.15); color: var(--yellow); }
+
+    .stats-row {
+      display: flex;
+      gap: 24px;
+      margin-left: auto;
+    }
+
+    .stat { text-align: right; }
+    .stat-value { font-size: 15px; font-weight: 600; color: var(--cyan); }
+    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* ── Timeline ── */
+    .timeline {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px;
+    }
+
+    .step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 8px;
+      position: relative;
+    }
+
+    .step::before {
+      content: '';
+      position: absolute;
+      left: 19px;
+      top: 36px;
+      bottom: -8px;
+      width: 2px;
+      background: var(--border);
+    }
+
+    .step:last-child::before { display: none; }
+
+    .step-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+      border: 2px solid transparent;
+    }
+
+    .step-body {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: border-color 0.1s;
+    }
+
+    .step-body:hover { border-color: var(--muted); }
+    .step-body.expanded { border-color: var(--cyan); }
+
+    .step-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .step-type {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .step-name { font-size: 13px; font-weight: 500; }
+
+    .step-meta {
+      margin-left: auto;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .step-meta span { font-size: 11px; color: var(--muted); }
+
+    .step-details {
+      display: none;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .step-details.show { display: block; }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .detail-block { }
+    .detail-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 6px; }
+    .detail-value {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+      color: var(--text);
+    }
+
+    /* ── Type colors ── */
+    .type-tool_call { background: rgba(0,200,224,0.12); color: var(--cyan); }
+    .icon-tool_call { background: rgba(0,200,224,0.12); border-color: var(--cyan); }
+
+    .type-llm_call { background: rgba(160,96,245,0.12); color: var(--purple); }
+    .icon-llm_call { background: rgba(160,96,245,0.12); border-color: var(--purple); }
+
+    .type-memory_read,.type-memory_write { background: rgba(34,211,160,0.12); color: var(--green); }
+    .icon-memory_read,.icon-memory_write { background: rgba(34,211,160,0.12); border-color: var(--green); }
+
+    .type-error { background: rgba(245,96,96,0.12); color: var(--red); }
+    .icon-error { background: rgba(245,96,96,0.12); border-color: var(--red); }
+
+    .type-custom { background: rgba(245,166,35,0.12); color: var(--yellow); }
+    .icon-custom { background: rgba(245,166,35,0.12); border-color: var(--yellow); }
+
+    /* ── Empty state ── */
+    .empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      gap: 12px;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .empty-icon { font-size: 48px; opacity: 0.4; }
+    .empty-title { font-size: 16px; font-weight: 600; color: var(--text); }
+    .empty-sub { font-size: 13px; max-width: 360px; line-height: 1.5; }
+
+    /* ── Buttons ── */
+    button {
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      transition: background 0.1s, border-color 0.1s;
+    }
+
+    .btn:hover { background: rgba(255,255,255,0.06); border-color: var(--muted); }
+
+    .btn-primary {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+    }
+
+    .btn-primary:hover { background: #00b0c8; }
+
+    /* ── Upload drop zone ── */
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      margin: 24px;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--cyan);
+      background: rgba(0,200,224,0.04);
+    }
+
+    .dropzone-icon { font-size: 36px; margin-bottom: 12px; }
+    .dropzone-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .dropzone-sub { font-size: 12px; color: var(--muted); }
+
+    input[type=file] { display: none; }
+
+    /* ── Scrollbars ── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CerebreX <span>Trace Explorer</span></div>
+  <div class="header-right">
+    <label class="btn" for="file-input">Load Trace File</label>
+    <input type="file" id="file-input" accept=".json" multiple />
+  </div>
+</header>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span>Sessions</span>
+      <span id="session-count" style="color: var(--cyan)">0</span>
+    </div>
+    <div class="session-list" id="session-list">
+      <div style="padding: 32px 16px; text-align: center; color: var(--muted); font-size: 12px;">
+        Load a trace file to get started
+      </div>
+    </div>
+  </div>
+
+  <div class="main" id="main">
+    <div class="empty" id="empty-state">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">No trace loaded</div>
+      <div class="empty-sub">
+        Load a JSON trace file from <code style="color: var(--cyan)">~/.cerebrex/traces/</code>
+        or drag and drop it here.
+      </div>
+      <div id="drop-area" class="dropzone" style="width: 360px">
+        <div class="dropzone-icon">📂</div>
+        <div class="dropzone-title">Drop trace file here</div>
+        <div class="dropzone-sub">or click "Load Trace File" in the header</div>
+      </div>
+    </div>
+    <div id="trace-view" style="display:none; flex-direction:column; flex:1; overflow:hidden;">
+      <div class="trace-header" id="trace-header"></div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const sessions = new Map();
+let activeSession = null;
+
+const STEP_ICONS = {
+  tool_call: '🔧',
+  llm_call: '🤖',
+  memory_read: '📖',
+  memory_write: '💾',
+  error: '❌',
+  custom: '⚡',
+};
+
+function getIcon(type) {
+  return STEP_ICONS[type] || STEP_ICONS.custom;
+}
+
+function formatMs(ms) {
+  if (!ms) return '–';
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatTokens(tokens) {
+  if (!tokens) return '';
+  if (tokens < 1000) return `${tokens} tok`;
+  return `${(tokens / 1000).toFixed(1)}k tok`;
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch { return iso; }
+}
+
+function loadTrace(data, filename) {
+  const session = typeof data === 'string' ? JSON.parse(data) : data;
+  const id = session.session || filename || `session-${Date.now()}`;
+  sessions.set(id, { session, filename });
+  renderSidebar();
+  selectSession(id);
+}
+
+function renderSidebar() {
+  const list = document.getElementById('session-list');
+  document.getElementById('session-count').textContent = sessions.size;
+
+  if (!sessions.size) {
+    list.innerHTML = '<div style="padding: 32px 16px; text-align: center; color: var(--muted); font-size: 12px;">Load a trace file to get started</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const [id, { session, filename }] of sessions) {
+    const steps = session.steps || [];
+    const totalMs = steps.reduce((s, step) => s + (step.latencyMs || 0), 0);
+    const div = document.createElement('div');
+    div.className = `session-item${activeSession === id ? ' active' : ''}`;
+    div.innerHTML = `
+      <div class="session-name">${session.session || filename || id}</div>
+      <div class="session-meta">${steps.length} steps · ${formatMs(totalMs)} · ${formatDate(session.started_at)}</div>
+    `;
+    div.addEventListener('click', () => selectSession(id));
+    list.appendChild(div);
+  }
+}
+
+function selectSession(id) {
+  activeSession = id;
+  renderSidebar();
+  renderTrace(id);
+}
+
+function renderTrace(id) {
+  const { session } = sessions.get(id);
+  const steps = session.steps || [];
+
+  document.getElementById('empty-state').style.display = 'none';
+  const traceView = document.getElementById('trace-view');
+  traceView.style.display = 'flex';
+
+  // Header stats
+  const totalMs = steps.reduce((s, step) => s + (step.latencyMs || 0), 0);
+  const totalTokens = steps.reduce((s, step) => s + (step.tokens || 0), 0);
+  const toolCalls = steps.filter(s => s.type === 'tool_call').length;
+  const errors = steps.filter(s => s.type === 'error').length;
+
+  document.getElementById('trace-header').innerHTML = `
+    <div class="trace-title">${session.session || id}</div>
+    ${errors > 0 ? `<span class="badge badge-yellow">${errors} error${errors > 1 ? 's' : ''}</span>` : '<span class="badge badge-green">Clean</span>'}
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-value">${steps.length}</div>
+        <div class="stat-label">Steps</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">${toolCalls}</div>
+        <div class="stat-label">Tool Calls</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">${formatMs(totalMs)}</div>
+        <div class="stat-label">Total Time</div>
+      </div>
+      ${totalTokens ? `<div class="stat"><div class="stat-value">${formatTokens(totalTokens)}</div><div class="stat-label">Tokens</div></div>` : ''}
+    </div>
+  `;
+
+  // Timeline
+  const timeline = document.getElementById('timeline');
+  if (!steps.length) {
+    timeline.innerHTML = '<div style="color: var(--muted); padding: 32px; text-align: center;">No steps recorded</div>';
+    return;
+  }
+
+  timeline.innerHTML = '';
+  steps.forEach((step, i) => {
+    const type = step.type || 'custom';
+    const name = step.toolName || step.name || type;
+    const el = document.createElement('div');
+    el.className = 'step';
+    el.innerHTML = `
+      <div class="step-icon icon-${type}">${getIcon(type)}</div>
+      <div class="step-body" id="step-${i}">
+        <div class="step-top">
+          <span class="step-type type-${type}">${type.replace('_', ' ')}</span>
+          <span class="step-name">${name}</span>
+          <div class="step-meta">
+            ${step.latencyMs ? `<span>⏱ ${formatMs(step.latencyMs)}</span>` : ''}
+            ${step.tokens ? `<span>🔤 ${formatTokens(step.tokens)}</span>` : ''}
+            ${step.timestamp ? `<span>${formatDate(step.timestamp)}</span>` : ''}
+          </div>
+        </div>
+        ${(step.inputs || step.outputs || step.error) ? `
+        <div class="step-details" id="details-${i}">
+          <div class="detail-grid">
+            ${step.inputs ? `<div class="detail-block"><div class="detail-label">Inputs</div><div class="detail-value">${JSON.stringify(step.inputs, null, 2)}</div></div>` : ''}
+            ${step.outputs ? `<div class="detail-block"><div class="detail-label">Outputs</div><div class="detail-value">${JSON.stringify(step.outputs, null, 2)}</div></div>` : ''}
+            ${step.error ? `<div class="detail-block" style="grid-column: span 2"><div class="detail-label" style="color: var(--red)">Error</div><div class="detail-value" style="color: var(--red)">${step.error}</div></div>` : ''}
+          </div>
+        </div>` : ''}
+      </div>
+    `;
+
+    const body = el.querySelector(`#step-${i}`);
+    const details = el.querySelector(`#details-${i}`);
+    if (details) {
+      body.addEventListener('click', () => {
+        details.classList.toggle('show');
+        body.classList.toggle('expanded');
+      });
+    }
+
+    timeline.appendChild(el);
+  });
+}
+
+// ── File loading ──────────────────────────────────────────────────────────────
+
+function handleFiles(files) {
+  for (const file of files) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        loadTrace(e.target.result, file.name.replace('.json', ''));
+      } catch (err) {
+        alert(`Could not parse ${file.name}: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  }
+}
+
+document.getElementById('file-input').addEventListener('change', (e) => {
+  handleFiles(e.target.files);
+});
+
+const dropArea = document.getElementById('drop-area');
+const mainEl = document.getElementById('main');
+
+[dropArea, mainEl].forEach(el => {
+  el.addEventListener('dragover', (e) => { e.preventDefault(); dropArea.classList.add('dragover'); });
+  el.addEventListener('dragleave', () => dropArea.classList.remove('dragover'));
+  el.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropArea.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+  });
+});
+
+// ── Query param loading (cerebrex trace view --web passes file path) ──────────
+const params = new URLSearchParams(location.search);
+const traceData = params.get('data');
+if (traceData) {
+  try {
+    loadTrace(JSON.parse(decodeURIComponent(traceData)), params.get('session') || 'trace');
+  } catch {}
+}
+</script>
+</body>
+</html>

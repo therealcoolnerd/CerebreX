@@ -18,8 +18,8 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.2.0 — Active Development**
-> The CLI is fully functional and builds cleanly. npm package publishing is in progress. Contributions welcome.
+> **Status: v0.3.0 — All 6 modules complete and live on npm**
+> `npm install -g cerebrex` — FORGE, TRACE, MEMEX, AUTH, REGISTRY, and HIVE are all working. Contributions welcome.
 
 ---
 
@@ -32,39 +32,35 @@ Five modules. One CLI.
 | Module | Command | Status | What It Does |
 |--------|---------|--------|-------------|
 | 🔨 **FORGE** | `cerebrex build` | ✅ Working | Generate production MCP servers from any OpenAPI spec |
-| 🔍 **TRACE** | `cerebrex trace` | ✅ Working | Record and replay agent execution step-by-step |
+| 🔍 **TRACE** | `cerebrex trace` | ✅ Working | Record and replay agent execution step-by-step + visual web dashboard |
 | 🧠 **MEMEX** | `cerebrex memex` | ✅ Working | Persistent memory with SHA-256 integrity + TTL |
 | 🔑 **AUTH** | `cerebrex auth` | ✅ Working | Secure token storage for registry authentication |
-| 📦 **REGISTRY** | `cerebrex publish` | 🔧 CLI ready, backend coming | Publish and install MCP servers |
-| 🐝 **HIVE** | `cerebrex hive` | 📋 Planned v0.3 | Multi-agent coordination with JWT auth |
+| 📦 **REGISTRY** | `cerebrex publish` | ✅ Working | Publish and install MCP servers (registry.cerebrex.dev) |
+| 🐝 **HIVE** | `cerebrex hive` | ✅ Working | Multi-agent coordination with JWT auth |
 
 ---
 
 ## ⚡ Quickstart
 
-> **npm package coming soon.** For now, build from source:
+> **Install globally with npm:**
 
 ```bash
-# Clone the repo
+npm install -g cerebrex
+cerebrex --help
+```
+
+Or build from source (requires Bun):
+
+```bash
 git clone https://github.com/therealcoolnerd/CerebreX.git
 cd CerebreX
-
-# Install dependencies (requires Bun)
 bun install
-
-# Build packages in order
 cd packages/types && bun run build && cd ../..
 cd packages/core && bun run build && cd ../..
 cd packages/registry-client && bun run build && cd ../..
-
-# Build the CLI
 cd apps/cli && bun run build
-
-# Run it
 node dist/index.js --help
 ```
-
-**Install Bun:** https://bun.sh
 
 ---
 
@@ -126,6 +122,30 @@ node apps/cli/dist/index.js memex set "session-ctx" "..." --ttl 3600
 
 All writes are SHA-256 checksummed. Reads verify integrity before returning.
 Storage: `~/.cerebrex/memex/<namespace>.json` — local, no cloud required.
+
+---
+
+## 🐝 HIVE — Multi-Agent Coordination
+
+```bash
+# Initialize a HIVE coordinator
+cerebrex hive init --name my-hive
+
+# Start the coordinator (runs on port 7433)
+cerebrex hive start
+
+# In another terminal — register an agent and get a JWT
+cerebrex hive register --id agent-1 --name "Summarizer" --capabilities summarize,classify
+
+# Check who's connected
+cerebrex hive status
+
+# Send a task to an agent (use the JWT printed by register)
+cerebrex hive send --agent agent-1 --type summarize --payload '{"text":"..."}' --token <JWT>
+```
+
+HIVE runs a local HTTP coordinator with JWT-signed agent authentication.
+Agents register, receive tasks, and report results back via the REST API.
 
 ---
 
@@ -196,10 +216,10 @@ cd apps/cli && bun run build
 - [x] AUTH — Secure token storage, `cerebrex auth login/logout/status` *(v0.2)*
 - [x] VALIDATE — Real MCP + OWASP compliance checks *(v0.2)*
 - [x] CI/CD — GitHub Actions build + npm publish pipeline *(v0.2)*
-- [ ] npm package live — `npm install -g cerebrex` *(v0.2 — in progress)*
-- [ ] Registry backend — `registry.cerebrex.dev` *(v0.3)*
-- [ ] HIVE — Multi-agent JWT coordination, Durable Objects *(v0.3)*
-- [ ] Web dashboard — Visual trace explorer *(v0.3)*
+- [x] npm package live — `npm install -g cerebrex` *(v0.2.1)*
+- [x] Registry backend — Cloudflare Worker + D1 + KV *(v0.3)*
+- [x] HIVE — Multi-agent JWT coordination (init/start/register/status/send) *(v0.3)*
+- [x] Web dashboard — Visual trace explorer (`cerebrex trace view --web`) *(v0.3)*
 - [ ] Enterprise tier + on-prem *(v1.0)*
 
 ---
