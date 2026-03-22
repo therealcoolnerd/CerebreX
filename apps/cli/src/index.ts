@@ -18,7 +18,7 @@ import { memexCommand } from './commands/memex.js';
 import { authCommand } from './commands/auth.js';
 import { hiveCommand } from './commands/hive.js';
 
-const VERSION = '0.3.1';
+const VERSION = '0.3.2';
 
 const program = new Command();
 

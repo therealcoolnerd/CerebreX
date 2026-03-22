@@ -6,6 +6,14 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.3.2] — 2026-03-22
+
+### Fix
+- Added all missing runtime dependencies to `apps/cli/package.json` — `commander`, `chalk`, `ora`, `zod`, `@modelcontextprotocol/sdk`, `agents`, `inquirer`, `execa`, `yaml`, and `@cerebrex/*` workspace packages
+- CI `Build CLI` step now passes; GitHub Actions pipeline is green
+
+---
+
 ## [0.3.1] — 2026-03-22
 
 ### Fix

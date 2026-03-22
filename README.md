@@ -19,7 +19,7 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.3.1 — All 6 modules complete and live on npm**
+> **Status: v0.3.2 — All 6 modules complete and live on npm**
 > `npm install -g cerebrex` — FORGE, TRACE, MEMEX, AUTH, REGISTRY, and HIVE are all working.
 > Live registry: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
 
