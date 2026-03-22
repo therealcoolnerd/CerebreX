@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * CerebreX CLI
  * The open-source Agent Infrastructure OS
