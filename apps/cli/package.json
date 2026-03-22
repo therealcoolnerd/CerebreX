@@ -1,0 +1,52 @@
+{
+  "name": "cerebrex",
+  "version": "0.2.0",
+  "description": "CerebreX CLI — The open-source Agent Infrastructure OS",
+  "bin": {
+    "cerebrex": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node --minify",
+    "prepublishOnly": "bun run build",
+    "dev": "bun run --watch ./src/index.ts",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@cerebrex/core": "workspace:*",
+    "@cerebrex/types": "workspace:*",
+    "@cerebrex/registry": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@types/node": "^20.0.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0",
+    "inquirer": "^9.2.0",
+    "openapi3-ts": "^4.3.0",
+    "ora": "^8.0.0",
+    "ts-morph": "^22.0.0",
+    "execa": "^9.0.0",
+    "yaml": "^2.4.0",
+    "typescript": "^5.4.0",
+    "zod": "^3.22.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "bun": ">=1.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/therealcoolnerd/CerebreX.git",
+    "directory": "apps/cli"
+  },
+  "license": "Apache-2.0"
+}

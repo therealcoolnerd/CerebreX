@@ -1,0 +1,51 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    name: Publish cerebrex to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # required for npm provenance
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (for npm publish)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build packages (types → core → registry-client)
+        run: |
+          cd packages/types && bun run build && cd ../..
+          cd packages/core && bun run build && cd ../..
+          cd packages/registry-client && bun run build && cd ../..
+
+      - name: Build CLI
+        run: cd apps/cli && bun run build
+
+      - name: Copy README and LICENSE into CLI package
+        run: |
+          cp README.md apps/cli/README.md
+          cp LICENSE apps/cli/LICENSE
+
+      - name: Publish to npm
+        working-directory: apps/cli
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

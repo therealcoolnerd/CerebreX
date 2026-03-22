@@ -1,0 +1,63 @@
+{
+  "name": "cerebrex",
+  "version": "0.1.0",
+  "description": "The open-source Agent Infrastructure OS — build, test, remember, coordinate, and publish AI agents.",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:watch": "turbo run test:watch",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\"",
+    "cli": "bun run apps/cli/src/index.ts",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "turbo run build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@types/node": "^20.0.0",
+    "prettier": "^3.0.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "bun": ">=1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/therealcoolnerd/CerebreX.git"
+  },
+  "homepage": "https://cerebrex.dev",
+  "bugs": {
+    "url": "https://github.com/therealcoolnerd/CerebreX/issues"
+  },
+  "author": {
+    "name": "Josef D.C. McClammey",
+    "email": "josef@arealcool.site",
+    "url": "https://arealcool.site"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "ai-agents",
+    "cloudflare-workers",
+    "typescript",
+    "open-source",
+    "developer-tools",
+    "llm",
+    "agent-infrastructure",
+    "observability",
+    "memory",
+    "multi-agent",
+    "model-context-protocol"
+  ]
+}

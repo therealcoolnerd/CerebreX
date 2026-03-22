@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+
+# Turbo cache
+.turbo/
+
+# Bun
+.bun/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+bun-error.pid
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+
+# Test coverage
+coverage/
+
+# Intermediate tsc output co-located in src/ (packages use outDir=dist, not src)
+apps/cli/src/**/*.js
+apps/cli/src/**/*.js.map
+apps/cli/src/**/*.d.ts
+apps/cli/src/**/*.d.ts.map
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+
+# Temporary publish assets (copied by CI)
+apps/cli/README.md
+apps/cli/LICENSE
