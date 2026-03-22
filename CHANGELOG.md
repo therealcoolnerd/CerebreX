@@ -8,11 +8,20 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ## [0.4.0] — 2026-03-22
 
-### Web UI (New)
-- `GET /` → Registry Browser — search packages, view details, one-click copy install command
-- `GET /ui/trace` → Hosted Trace Explorer — drag-and-drop JSON trace files, full visual timeline
-- Both UIs are self-contained HTML served from the registry Worker — no external assets, no new infra
-- Linked navigation between registry browser and trace explorer
+### Web UI — Registry Browser (New)
+- `GET /` on the registry Worker → full Registry Browser UI — search packages, view details, one-click copy install command, package metadata
+- `GET /ui/trace` → Hosted Trace Explorer — drag-and-drop JSON trace files, full visual step timeline with latency/token stats
+- Both UIs are self-contained HTML served from the registry Worker — no external assets, no additional infrastructure
+- Cross-linked navigation between registry browser and trace explorer
+- Responsive design, CerebreX dark theme, works on mobile
+
+### CLI
+- Version bumped to `0.4.0` to align with registry Worker release
+- All 6 modules stable: FORGE, TRACE, MEMEX, AUTH, REGISTRY, HIVE
+
+### Docs
+- README fully updated: Web UI section added, "Website: Coming Soon" notice, roadmap updated
+- CHANGELOG covers all releases from v0.1.0 through v0.4.0
 
 ---
 

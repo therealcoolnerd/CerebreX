@@ -19,18 +19,21 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.4.0 — Web UI live, all 6 CLI modules on npm**
+> **Status: v0.4.0 — Registry Web UI live, all 6 CLI modules on npm**
 > `npm install -g cerebrex` — FORGE, TRACE, MEMEX, AUTH, REGISTRY, and HIVE are all working.
-> Registry UI: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
-> Trace Explorer: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev/ui/trace`
+>
+> **Live:** Registry UI → `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
+> **Live:** Trace Explorer → `https://cerebrex-registry.therealjosefdmcclammey.workers.dev/ui/trace`
+>
+> **Website: Coming Soon** — `https://therealcool.site`
 
 ---
 
 ## What is CerebreX?
 
-CerebreX is an open-source **Agent Infrastructure OS** — the tools developers need to build reliable, observable, and secure AI agents.
+CerebreX is an open-source **Agent Infrastructure OS** — the complete toolchain developers need to build reliable, observable, and secure AI agents.
 
-Six modules. One CLI.
+Six modules. One CLI. One registry. One coordination layer.
 
 | Module | Command | Status | What It Does |
 |--------|---------|--------|-------------|
@@ -38,7 +41,7 @@ Six modules. One CLI.
 | 🔍 **TRACE** | `cerebrex trace` | ✅ Working | Record agent execution + visual web dashboard |
 | 🧠 **MEMEX** | `cerebrex memex` | ✅ Working | Persistent memory with SHA-256 integrity + TTL |
 | 🔑 **AUTH** | `cerebrex auth` | ✅ Working | Secure token storage for registry authentication |
-| 📦 **REGISTRY** | `cerebrex publish` | ✅ Working | Publish and install MCP servers (live registry) |
+| 📦 **REGISTRY** | `cerebrex publish` | ✅ Working | Publish and install MCP servers (live registry + web UI) |
 | 🐝 **HIVE** | `cerebrex hive` | ✅ Working | Multi-agent coordination with JWT auth |
 
 ---
@@ -54,7 +57,7 @@ Or build from source (requires [Bun](https://bun.sh)):
 
 ```bash
 git clone https://github.com/therealcoolnerd/CerebreX.git
-cd CerebreX
+cd CerebreX/cerebrex
 bun install
 cd packages/types && bun run build && cd ../..
 cd packages/core && bun run build && cd ../..
@@ -87,7 +90,7 @@ Output is a Cloudflare Workers project with:
 ## 🔍 TRACE — Agent Execution Recording
 
 ```bash
-# Start recording (runs in foreground)
+# Start recording (runs in foreground, default port 7432)
 cerebrex trace start --session my-agent --port 7432
 
 # From your agent, push steps:
@@ -102,6 +105,9 @@ cerebrex trace view --session my-agent
 
 # View in visual web dashboard (opens browser)
 cerebrex trace view --session my-agent --web
+
+# Or use the hosted Trace Explorer (no CLI required)
+# https://cerebrex-registry.therealjosefdmcclammey.workers.dev/ui/trace
 
 # List all saved sessions
 cerebrex trace list
@@ -125,6 +131,12 @@ cerebrex memex list
 
 # With TTL (auto-expires after 3600 seconds)
 cerebrex memex set "session-ctx" "..." --ttl 3600
+
+# Delete a key
+cerebrex memex delete "user-pref" --namespace ui
+
+# List all namespaces
+cerebrex memex namespaces
 ```
 
 All writes are SHA-256 checksummed. Reads verify integrity before returning.
@@ -140,18 +152,21 @@ cerebrex auth status    # check current auth state
 cerebrex auth logout    # remove stored token
 ```
 
+`CEREBREX_TOKEN` env var always takes precedence over stored credentials.
+
 ---
 
 ## 📦 REGISTRY — Publish & Install MCP Servers
 
-Registry: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
+Registry API: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
+Registry UI: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev` (browser)
 
 ```bash
 cerebrex auth login                              # authenticate first
-cerebrex publish --dir ./my-server              # publish to registry
-cerebrex install my-mcp-server                  # install from registry
 cerebrex validate ./my-server                   # validate before publishing
 cerebrex validate ./my-server --strict          # + OWASP checks
+cerebrex publish --dir ./my-server              # publish to registry
+cerebrex install my-mcp-server                  # install from registry
 ```
 
 ---
@@ -177,6 +192,18 @@ cerebrex hive send --agent agent-1 --type summarize --payload '{"text":"..."}' -
 
 HIVE runs a local HTTP coordinator with JWT-signed agent authentication.
 Agents register, receive tasks, and report results back via the REST API.
+State is persisted to `~/.cerebrex/hive/state.json`.
+
+---
+
+## 🌐 Web UI
+
+The CerebreX registry includes a browser-based UI served directly from the Worker — no install required.
+
+| URL | What It Does |
+|-----|-------------|
+| `/` | Registry browser — search packages, view details, copy install commands |
+| `/ui/trace` | Hosted Trace Explorer — drag-and-drop JSON trace files, full visual timeline |
 
 ---
 
@@ -190,11 +217,11 @@ CerebreX/
 │   │   │   ├── commands/ # build, trace, memex, auth, hive, other-commands
 │   │   │   └── core/     # forge/, trace/, memex/ engines + dashboard
 │   │   └── dist/         # built output (git-ignored, built by CI)
-│   └── dashboard/        # Web trace explorer (embedded in CLI bundle)
+│   └── dashboard/        # Standalone trace explorer HTML
 │       └── src/index.html
 ├── workers/
-│   └── registry/         # Cloudflare Worker — live registry backend
-│       ├── src/index.ts  # REST API (D1 + KV)
+│   └── registry/         # Cloudflare Worker — live registry backend + Web UI
+│       ├── src/index.ts  # REST API (D1 + KV) + embedded HTML pages
 │       ├── schema.sql    # D1 database schema
 │       └── wrangler.toml
 ├── packages/
@@ -231,7 +258,7 @@ Contributions are welcome. CerebreX is a solo-built open-source project — PRs,
 
 ```bash
 git clone https://github.com/therealcoolnerd/CerebreX.git
-cd CerebreX
+cd CerebreX/cerebrex
 bun install
 cd packages/types && bun run build && cd ../..
 cd packages/core && bun run build && cd ../..
@@ -255,7 +282,10 @@ cd apps/cli && bun run build
 - [x] Registry backend — Cloudflare Worker + D1 + KV *(v0.3)*
 - [x] HIVE — Multi-agent JWT coordination (init/start/register/status/send) *(v0.3)*
 - [x] Web UI — Registry browser + hosted trace explorer (Worker-embedded) *(v0.4)*
+- [ ] Website — `therealcool.site` *(coming soon)*
 - [ ] Custom domain — `registry.cerebrex.dev` *(next)*
+- [ ] Real registry auth — account registration + token validation *(v0.5)*
+- [ ] Agent test runner — `cerebrex test` with replay + assertions *(v0.5)*
 - [ ] Enterprise tier + on-prem *(v1.0)*
 
 ---
