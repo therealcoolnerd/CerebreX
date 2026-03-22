@@ -44,6 +44,15 @@ jobs:
           cp README.md apps/cli/README.md
           cp LICENSE apps/cli/LICENSE
 
+      - name: Verify token and dist
+        working-directory: apps/cli
+        run: |
+          [ -z "$NODE_AUTH_TOKEN" ] && echo "❌ TOKEN IS EMPTY" || echo "✅ Token is set"
+          ls -la dist/ || echo "❌ dist/ does not exist"
+          npm whoami || echo "❌ npm whoami failed — token invalid or missing"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Publish to npm
         working-directory: apps/cli
         run: npm publish --access public --ignore-scripts
