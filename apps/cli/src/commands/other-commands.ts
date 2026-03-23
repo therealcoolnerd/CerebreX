@@ -406,6 +406,141 @@ Examples:
     }
   });
 
+// ── CONFIGURE ─────────────────────────────────────────────────────────────────
+export const configureCommand = new Command('configure')
+  .description('Add an installed MCP package to Claude Desktop config')
+  .argument('<package>', 'Package name (e.g. @arealcoolco/nasa-mcp)')
+  .option('-d, --dir <path>', 'Directory where the package is installed', './cerebrex-servers')
+  .option('--env <KEY=VALUE...>', 'Environment variables to pass to the MCP server', (v, prev: string[]) => [...prev, v], [] as string[])
+  .option('--dry-run', 'Print the config change without writing it')
+  .addHelpText('after', `
+Examples:
+  cerebrex configure @arealcoolco/nasa-mcp
+  cerebrex configure @arealcoolco/github-mcp --env GITHUB_TOKEN=ghp_abc123
+  cerebrex configure @arealcoolco/openweathermap-mcp --env OWM_API_KEY=abc --dry-run
+  `)
+  .action(async (packageName, options) => {
+    console.log(chalk.blue(`\n⚙️  Configuring ${chalk.bold(packageName)} for Claude Desktop\n`));
+
+    // ── Resolve the Claude Desktop config path ────────────────────────────────
+    let configPath: string;
+    if (process.platform === 'win32') {
+      configPath = path.join(os.homedir(), 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
+    } else if (process.platform === 'darwin') {
+      configPath = path.join(os.homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json');
+    } else {
+      configPath = path.join(os.homedir(), '.config', 'Claude', 'claude_desktop_config.json');
+    }
+
+    // ── Resolve the server entry point ───────────────────────────────────────
+    const installDir = path.resolve(process.cwd(), options.dir);
+    const pkgBaseName = packageName.split('/').pop()!;
+    // Try scoped install dir first, then flat
+    const candidates = [
+      path.join(installDir, pkgBaseName, 'dist', 'server.js'),
+      path.join(installDir, packageName, 'dist', 'server.js'),
+      path.join(installDir, 'dist', 'server.js'),
+    ];
+    let serverPath = candidates.find(fs.existsSync);
+
+    if (!serverPath) {
+      // Try fetching from registry to show where to install
+      const token = getAuthToken();
+      try {
+        const client = new RegistryClient({ authToken: token ?? undefined });
+        const meta = await client.getPackage(packageName, 'latest') as { name?: string; description?: string; readme?: string };
+        console.log(chalk.yellow(`  Package "${packageName}" not installed locally.`));
+        console.log(chalk.dim(`  Description: ${meta.description ?? 'N/A'}`));
+        console.log(chalk.dim(`\n  Install it first:\n    cerebrex install ${packageName}\n`));
+      } catch {
+        console.log(chalk.yellow(`  Package "${packageName}" not found locally or in registry.`));
+        console.log(chalk.dim(`\n  Install it first:\n    cerebrex install ${packageName}\n`));
+      }
+      process.exit(1);
+    }
+
+    // ── Parse --env flags ─────────────────────────────────────────────────────
+    const envRecord: Record<string, string> = {};
+    for (const e of (options.env as string[])) {
+      const idx = e.indexOf('=');
+      if (idx === -1) {
+        envRecord[e] = '';
+      } else {
+        envRecord[e.slice(0, idx)] = e.slice(idx + 1);
+      }
+    }
+
+    // ── Check README for required env vars not yet supplied ───────────────────
+    const readmePath = path.join(path.dirname(path.dirname(serverPath)), 'README.md');
+    if (fs.existsSync(readmePath)) {
+      const readme = fs.readFileSync(readmePath, 'utf-8');
+      const envMatches = [...readme.matchAll(/export\s+([A-Z_][A-Z0-9_]+)=/g)];
+      const missing = envMatches
+        .map((m) => m[1])
+        .filter((v) => !(v in envRecord) && !process.env[v]);
+      if (missing.length > 0) {
+        console.log(chalk.yellow('  Required environment variables not set:'));
+        for (const v of missing) {
+          console.log(chalk.dim(`    ${v}=<your_value>`));
+        }
+        console.log(chalk.dim('\n  Pass them with --env KEY=VALUE, e.g.:'));
+        console.log(chalk.dim(`    cerebrex configure ${packageName} --env ${missing[0]}=your_value\n`));
+      }
+    }
+
+    // ── Build the new mcpServers entry ────────────────────────────────────────
+    const serverKey = pkgBaseName;
+    const newEntry: Record<string, unknown> = {
+      command: 'node',
+      args: [serverPath],
+    };
+    if (Object.keys(envRecord).length > 0) {
+      newEntry['env'] = envRecord;
+    }
+
+    // ── Load or create Claude Desktop config ─────────────────────────────────
+    let config: { mcpServers?: Record<string, unknown> } = {};
+    if (fs.existsSync(configPath)) {
+      try {
+        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      } catch {
+        console.error(chalk.red(`  Could not parse existing config at ${configPath}`));
+        process.exit(1);
+      }
+    }
+
+    config.mcpServers = config.mcpServers ?? {};
+    const alreadyExists = serverKey in config.mcpServers;
+    config.mcpServers[serverKey] = newEntry;
+
+    const newJson = JSON.stringify(config, null, 2);
+
+    if (options.dryRun) {
+      console.log(chalk.dim(`  Config file: ${configPath}`));
+      console.log(chalk.dim('  Would write:\n'));
+      console.log(newJson);
+      console.log('');
+      return;
+    }
+
+    // ── Write the updated config ──────────────────────────────────────────────
+    const configDir = path.dirname(configPath);
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(configPath, newJson, 'utf-8');
+
+    if (alreadyExists) {
+      console.log(chalk.green(`  Updated "${serverKey}" in Claude Desktop config`));
+    } else {
+      console.log(chalk.green(`  Added "${serverKey}" to Claude Desktop config`));
+    }
+    console.log(chalk.dim(`  Config: ${configPath}`));
+    console.log(chalk.dim('  Restart Claude Desktop to apply changes.\n'));
+
+    // ── Print snippet ─────────────────────────────────────────────────────────
+    console.log(chalk.dim('  Entry added:'));
+    console.log(chalk.dim(`    "${serverKey}": ${JSON.stringify(newEntry, null, 4).split('\n').join('\n    ')}\n`));
+  });
+
 // ── INSTALL ───────────────────────────────────────────────────────────────────
 export const installCommand = new Command('install')
   .description('Install an MCP server from the CerebreX Registry')

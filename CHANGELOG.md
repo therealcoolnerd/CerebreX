@@ -6,6 +6,35 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.6.2] — 2026-03-23
+
+### Registry — Users, Roles & Official Packages
+
+- **`users` table** (schema-v3.sql) — `username`, `bio`, `website`, `avatar_url`, `role` (user/admin/banned), `created_at`; seeded from existing token owners
+- **Role-based access control** — `isAdmin()` checks `REGISTRY_ADMIN_TOKEN` env var or D1 `users.role = 'admin'`
+- **Profile API** — `GET /v1/users/me`, `PATCH /v1/users/me`, `GET /v1/users/:username`
+- **Admin API** — `GET /v1/admin/users`, `PATCH /v1/admin/users/:username` (role/ban), `POST /v1/admin/packages/:name/feature`
+- **Featured packages** — `featured` column on `packages` table; featured packages sorted first in list with ★ Official badge
+- **Profile page** — `/u/:username` — public profile with bio, website, package list, join date
+- **Account dashboard** — `/account` — token-gated; edit profile, view owned packages and token expiry
+- **Admin panel** — `/admin` — user management (role changes, ban/unban) and package feature/unfeature controls
+- **Auto-create user on signup/register** — `ensureUserExists()` creates user record on first token issuance
+- **`arealcoolco` set as admin** — D1 `UPDATE users SET role='admin' WHERE username='arealcoolco'`
+
+### Official MCP Packages Published
+
+- **`@arealcoolco/nasa-mcp@1.0.0`** — APOD, Mars Rover Photos, Near-Earth Objects, Earth Imagery, Image Library (uses `NASA_API_KEY`, free DEMO_KEY works)
+- **`@arealcoolco/openweathermap-mcp@1.0.0`** — Current weather, 5-day forecast, air quality, geocoding (requires `OWM_API_KEY`)
+- **`@arealcoolco/github-mcp@1.0.0`** — Repos, issues, PRs, commits, users, search (requires `GITHUB_TOKEN`)
+- All three packages featured (★ Official) in the registry
+
+### CLI — v0.6.2
+
+- `cerebrex configure <package>` — new command; adds an installed MCP package to Claude Desktop's `claude_desktop_config.json`; supports `--env KEY=VALUE`, `--dry-run`, auto-detects required env vars from README
+- Version bumped to `0.6.2`
+
+---
+
 ## [0.6.1] — 2026-03-23
 
 ### Registry Worker — Security & Feature Hardening

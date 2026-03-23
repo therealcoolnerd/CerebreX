@@ -13,12 +13,12 @@ import { buildCommand } from './commands/build.js';
 
 import { traceCommand } from './commands/trace.js';
 
-import { deployCommand, validateCommand, publishCommand, installCommand, deprecateCommand } from './commands/other-commands.js';
+import { deployCommand, validateCommand, publishCommand, installCommand, deprecateCommand, configureCommand } from './commands/other-commands.js';
 import { memexCommand } from './commands/memex.js';
 import { authCommand } from './commands/auth.js';
 import { hiveCommand } from './commands/hive.js';
 
-const VERSION = '0.6.1';
+const VERSION = '0.6.2';
 
 const program = new Command();
 
@@ -51,6 +51,7 @@ program.addCommand(traceCommand);
 program.addCommand(validateCommand);
 program.addCommand(publishCommand);
 program.addCommand(installCommand);
+program.addCommand(configureCommand);
 program.addCommand(deprecateCommand);
 program.addCommand(memexCommand);
 program.addCommand(authCommand);
