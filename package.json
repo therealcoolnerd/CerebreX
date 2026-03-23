@@ -34,16 +34,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/therealcoolnerd/CerebreX.git"
+    "url": "https://github.com/therealcoolco/cerebrex.git"
   },
   "homepage": "https://cerebrex.dev",
   "bugs": {
-    "url": "https://github.com/therealcoolnerd/CerebreX/issues"
+    "url": "https://github.com/therealcoolco/cerebrex/issues"
   },
   "author": {
-    "name": "Josef D.C. McClammey",
-    "email": "josef@arealcool.site",
-    "url": "https://arealcool.site"
+    "name": "A Real Cool Co.",
+    "url": "https://therealcool.site"
   },
   "license": "Apache-2.0",
   "keywords": [

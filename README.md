@@ -5,15 +5,15 @@
 ### The Open-Source Agent Infrastructure OS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
-[![CI](https://github.com/therealcoolnerd/CerebreX/actions/workflows/ci.yml/badge.svg)](https://github.com/therealcoolnerd/CerebreX/actions/workflows/ci.yml)
+[![CI](https://github.com/therealcoolco/cerebrex/actions/workflows/ci.yml/badge.svg)](https://github.com/therealcoolco/cerebrex/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/cerebrex.svg)](https://www.npmjs.com/package/cerebrex)
-[![GitHub Stars](https://img.shields.io/github/stars/therealcoolnerd/CerebreX?style=social)](https://github.com/therealcoolnerd/CerebreX)
-[![Issues](https://img.shields.io/github/issues/therealcoolnerd/CerebreX)](https://github.com/therealcoolnerd/CerebreX/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/therealcoolco/cerebrex?style=social)](https://github.com/therealcoolco/cerebrex)
+[![Issues](https://img.shields.io/github/issues/therealcoolco/cerebrex)](https://github.com/therealcoolco/cerebrex/issues)
 
 **Build. Test. Remember. Coordinate. Publish.**
 The complete infrastructure layer for AI agents — in one CLI.
 
-[🚀 Quickstart](#-quickstart) · [🗂 Structure](#-monorepo-structure) · [🛣 Roadmap](#-roadmap) · [🐛 Issues](https://github.com/therealcoolnerd/CerebreX/issues)
+[🚀 Quickstart](#-quickstart) · [🗂 Structure](#-monorepo-structure) · [🛣 Roadmap](#-roadmap) · [🐛 Issues](https://github.com/therealcoolco/cerebrex/issues)
 
 </div>
 
@@ -22,8 +22,8 @@ The complete infrastructure layer for AI agents — in one CLI.
 > **Status: v0.4.0 — Registry Web UI live, all 6 CLI modules on npm**
 > `npm install -g cerebrex` — FORGE, TRACE, MEMEX, AUTH, REGISTRY, and HIVE are all working.
 >
-> **Live:** Registry UI → `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
-> **Live:** Trace Explorer → `https://cerebrex-registry.therealjosefdmcclammey.workers.dev/ui/trace`
+> **Live:** Registry UI → `https://registry.therealcool.site`
+> **Live:** Trace Explorer → `https://registry.therealcool.site/ui/trace`
 >
 > **Website: Coming Soon** — `https://therealcool.site`
 
@@ -56,7 +56,7 @@ cerebrex --help
 Or build from source (requires [Bun](https://bun.sh)):
 
 ```bash
-git clone https://github.com/therealcoolnerd/CerebreX.git
+git clone https://github.com/therealcoolco/cerebrex.git
 cd CerebreX/cerebrex
 bun install
 cd packages/types && bun run build && cd ../..
@@ -107,7 +107,7 @@ cerebrex trace view --session my-agent
 cerebrex trace view --session my-agent --web
 
 # Or use the hosted Trace Explorer (no CLI required)
-# https://cerebrex-registry.therealjosefdmcclammey.workers.dev/ui/trace
+# https://registry.therealcool.site/ui/trace
 
 # List all saved sessions
 cerebrex trace list
@@ -158,8 +158,8 @@ cerebrex auth logout    # remove stored token
 
 ## 📦 REGISTRY — Publish & Install MCP Servers
 
-Registry API: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
-Registry UI: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev` (browser)
+Registry API: `https://registry.therealcool.site`
+Registry UI: `https://registry.therealcool.site` (browser)
 
 ```bash
 cerebrex auth login                              # authenticate first
@@ -257,7 +257,7 @@ Found a vulnerability? Please read our [Security Policy](./SECURITY.md) and repo
 Contributions are welcome. CerebreX is a solo-built open-source project — PRs, issues, and feedback all help.
 
 ```bash
-git clone https://github.com/therealcoolnerd/CerebreX.git
+git clone https://github.com/therealcoolco/cerebrex.git
 cd CerebreX/cerebrex
 bun install
 cd packages/types && bun run build && cd ../..
@@ -298,7 +298,7 @@ CerebreX is open source under the [Apache 2.0 License](./LICENSE).
 
 <div align="center">
 
-Built by [therealcoolnerd](https://github.com/therealcoolnerd) · Gulf Coast, Mississippi
+Built by [A Real Cool Co.](https://therealcool.site) · Gulf Coast, Mississippi
 
 *"The developer who builds the standard wins the ecosystem."*
 

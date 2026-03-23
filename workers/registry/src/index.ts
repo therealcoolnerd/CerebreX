@@ -262,7 +262,7 @@ function registryUI(): string {
   <div class="logo">CerebreX <span>Registry</span></div>
   <div class="header-links">
     <a href="/ui/trace">Trace Explorer</a>
-    <a href="https://github.com/therealcoolnerd/CerebreX" target="_blank">GitHub</a>
+    <a href="https://github.com/therealcoolco/cerebrex" target="_blank">GitHub</a>
     <a href="https://www.npmjs.com/package/cerebrex" target="_blank">npm</a>
   </div>
 </header>
@@ -767,7 +767,7 @@ async function handlePublish(request: Request, env: Env): Promise<Response> {
   return json({
     success: true,
     package: { name, version, description, tags, tarball_size: tarballBytes.length, sha256, published_at: publishedAt },
-    url: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev/v1/packages/${encodeURIComponent(name)}/${version}`,
+    url: `https://registry.therealcool.site/v1/packages/${encodeURIComponent(name)}/${version}`,
   }, 201);
 }
 
@@ -801,7 +801,7 @@ async function handleGetVersion(env: Env, name: string, version: string): Promis
   return json({
     success: true,
     ...pkg,
-    download_url: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev/v1/packages/${encodeURIComponent(name)}/${resolvedVersion}/download`,
+    download_url: `https://registry.therealcool.site/v1/packages/${encodeURIComponent(name)}/${resolvedVersion}/download`,
   });
 }
 

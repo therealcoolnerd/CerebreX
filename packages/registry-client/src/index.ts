@@ -6,7 +6,7 @@
 import type { RegistryPackage } from '@cerebrex/types';
 import { RegistryError } from '@cerebrex/core';
 
-const DEFAULT_REGISTRY_URL = 'https://cerebrex-registry.therealjosefdmcclammey.workers.dev';
+const DEFAULT_REGISTRY_URL = 'https://registry.therealcool.site';
 
 export class RegistryClient {
   private baseUrl: string;

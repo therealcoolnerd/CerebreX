@@ -41,7 +41,7 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 - Added `"type": "module"` to CLI `package.json` — eliminates Node.js ESM reparsing warning
 - Registry API paths corrected: `registry-client` now uses `/v1/` routes matching deployed Worker
 - `publish()` method updated to send JSON + base64 tarball (Worker expects JSON, not FormData)
-- Wired live registry URL throughout: `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
+- Wired live registry URL throughout: `https://registry.therealcool.site`
 
 ---
 
@@ -57,7 +57,7 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 - State persisted to `~/.cerebrex/hive/state.json`
 
 ### Registry Backend (New)
-- Cloudflare Worker deployed at `https://cerebrex-registry.therealjosefdmcclammey.workers.dev`
+- Cloudflare Worker deployed at `https://registry.therealcool.site`
 - D1 database `cerebrex-registry` for package metadata (name, version, description, tags)
 - KV namespace `cerebrex-registry-tarballs` for tarball storage (up to 25MB per package)
 - REST API: `POST /v1/packages`, `GET /v1/packages`, `GET /v1/packages/:name/:version`, `GET /v1/packages/:name/:version/download`, `DELETE /v1/packages/:name/:version`

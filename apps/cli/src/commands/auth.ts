@@ -45,7 +45,7 @@ export function getAuthToken(): string | null {
 export const authCommand = new Command('auth')
   .description('Authenticate with the CerebreX Registry');
 
-const REGISTRY_URL = 'https://cerebrex-registry.therealjosefdmcclammey.workers.dev';
+const REGISTRY_URL = 'https://registry.therealcool.site';
 
 // cerebrex auth register
 authCommand

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"C:/Users/The Real Cool Nerd/AppData/Local/Microsoft/WinGet/Packages/Oven-sh.Bun_Microsoft.Winget.Source_8wekyb3d8bbwe/bun-windows-x64/bun.exe\" run build)",
+      "Bash(node \"c:/Users/The Real Cool Nerd/Documents/CerebreX/CerebreX/cerebrex/apps/cli/dist/index.js\" --version)"
+    ]
+  }
+}
