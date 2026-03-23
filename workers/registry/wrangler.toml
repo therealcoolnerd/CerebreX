@@ -6,15 +6,15 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "cerebrex-registry"
-database_id = "8fd64267-21b3-4a60-9e97-ccdb88f6c782"
+database_id = "ee2cdb5a-a3c7-4973-b03f-6a27ed009d88"
 
 [[kv_namespaces]]
 binding = "TARBALLS"
-id = "89ca3afce7ef46e38be3352ca293f3b5"
+id = "d9532889276142b19894b97397bbaf1d"
 
 [[kv_namespaces]]
 binding = "RATE_LIMITS"
-id = "0fb44247dab04c06b6efca31b3fc2651"
+id = "0232016bf0364e449e67a6a621d0058e"
 
 [vars]
 ENVIRONMENT = "production"
