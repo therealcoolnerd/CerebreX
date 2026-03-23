@@ -144,6 +144,35 @@ authCommand
     console.log(chalk.green('\n  ✅ Logged out. Credentials removed.\n'));
   });
 
+// cerebrex auth revoke
+authCommand
+  .command('revoke')
+  .description('Revoke the current token on the server and log out')
+  .action(async () => {
+    const token = getAuthToken();
+    if (!token) {
+      console.log(chalk.yellow('\n  Not logged in.\n'));
+      return;
+    }
+
+    const spinner = (await import('ora')).default('Revoking token on server...').start();
+    try {
+      const res = await fetch(`${REGISTRY_URL}/v1/auth/token`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (!data.success) throw new Error(data.error || 'Server error');
+      spinner.succeed(chalk.green('Token revoked on server'));
+    } catch (e) {
+      spinner.warn(chalk.yellow(`Could not revoke server-side: ${(e as Error).message}`));
+      console.log(chalk.dim('  Local credentials will still be removed.'));
+    }
+
+    deleteToken();
+    console.log(chalk.green('  ✅ Logged out and token invalidated.\n'));
+  });
+
 // cerebrex auth status
 authCommand
   .command('status')

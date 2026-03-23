@@ -2,9 +2,9 @@
 /**
  * CerebreX CLI
  * The open-source Agent Infrastructure OS
- * 
+ *
  * © 2026 A Real Cool Co. — Apache 2.0 License
- * https://cerebrex.dev
+ * https://therealcool.site
  */
 
 import { Command } from 'commander';
@@ -13,12 +13,12 @@ import { buildCommand } from './commands/build.js';
 
 import { traceCommand } from './commands/trace.js';
 
-import { deployCommand, validateCommand, publishCommand, installCommand } from './commands/other-commands.js';
+import { deployCommand, validateCommand, publishCommand, installCommand, deprecateCommand } from './commands/other-commands.js';
 import { memexCommand } from './commands/memex.js';
 import { authCommand } from './commands/auth.js';
 import { hiveCommand } from './commands/hive.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.6.1';
 
 const program = new Command();
 
@@ -51,6 +51,7 @@ program.addCommand(traceCommand);
 program.addCommand(validateCommand);
 program.addCommand(publishCommand);
 program.addCommand(installCommand);
+program.addCommand(deprecateCommand);
 program.addCommand(memexCommand);
 program.addCommand(authCommand);
 program.addCommand(hiveCommand);

@@ -19,7 +19,7 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.4.0 — Registry Web UI live, all 6 CLI modules on npm**
+> **Status: v0.6.1 — Registry hardened, full publish/deprecate/revoke pipeline live**
 > `npm install -g cerebrex` — FORGE, TRACE, MEMEX, AUTH, REGISTRY, and HIVE are all working.
 >
 > **Live:** Registry UI → `https://registry.therealcool.site`

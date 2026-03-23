@@ -6,6 +6,34 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.6.1] — 2026-03-23
+
+### Registry Worker — Security & Feature Hardening
+
+- **Semver latest resolution** — `latest` tag now resolves to the highest semver version, not insertion order
+- **Package name ownership** — first publisher of a name owns it permanently; subsequent publishers blocked
+- **Scope ownership** — first publisher of `@org/*` locks that scope; others cannot publish under it
+- **Token expiry** — all new tokens issued with 1-year TTL (`expires_at` in D1)
+- **Username enumeration fix** — signup now returns generic "Username not available" on conflict
+- **Per-token publish rate limit** — 5 publishes/min per token (KV-backed, separate from IP rate limit)
+- **Multipart tarball upload** — `POST /v1/packages` accepts `multipart/form-data` (JSON backward compat retained)
+- **README field** — packages can include a `readme` string, stored in D1
+- **Download counts** — `download_count` incremented on every tarball fetch (fire-and-forget)
+- **Token revocation** — `DELETE /v1/auth/token` invalidates token server-side
+- **Package deprecation** — `POST /v1/packages/:name/:version/deprecate` with `{"deprecated": true/false}`
+- **Author filter** — `GET /v1/packages?author=<username>` filters by author
+- **Download sort** — list endpoint returns packages sorted by `download_count DESC`
+- **D1 schema migration** (schema-v2.sql) — adds `readme`, `download_count`, `deprecated`, `expires_at`, and indexes
+
+### CLI — v0.6.1
+
+- `cerebrex publish` — switched to multipart/form-data upload, added `--readme <file>` option and help examples
+- `cerebrex deprecate <pkg> <version> [--undo]` — new command to deprecate/un-deprecate a version
+- `cerebrex auth revoke` — calls `DELETE /v1/auth/token` on server before removing local credentials
+- Version bumped to `0.6.1`
+
+---
+
 ## [0.4.0] — 2026-03-22
 
 ### Web UI — Registry Browser (New)

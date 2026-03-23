@@ -75,12 +75,42 @@ async function hashBytes(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ── Semver helpers ────────────────────────────────────────────────────────────
+
+function semverParse(v: string): [number, number, number] {
+  const parts = v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+}
+
+function semverGt(a: string, b: string): boolean {
+  const [a1, a2, a3] = semverParse(a);
+  const [b1, b2, b3] = semverParse(b);
+  if (a1 !== b1) return a1 > b1;
+  if (a2 !== b2) return a2 > b2;
+  return a3 > b3;
+}
+
+async function resolveLatestVersion(env: Env, name: string): Promise<string | null> {
+  const { results } = await env.DB.prepare(
+    'SELECT version FROM packages WHERE name = ? AND deprecated = 0'
+  ).bind(name).all<{ version: string }>();
+  if (!results?.length) {
+    // Fall back to deprecated versions if all are deprecated
+    const fallback = await env.DB.prepare(
+      'SELECT version FROM packages WHERE name = ? ORDER BY published_at DESC LIMIT 1'
+    ).bind(name).first<{ version: string }>();
+    return fallback?.version ?? null;
+  }
+  return results.reduce((best, row) => semverGt(row.version, best.version) ? row : best).version;
+}
+
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 
 const RATE_LIMITS_CONFIG = {
   publish:  { windowMs: 60_000,       max: 10  },
   search:   { windowMs: 60_000,       max: 200 },
   signup:   { windowMs: 3_600_000,    max: 3   },  // 3 new accounts per IP per hour
+  download: { windowMs: 60_000,       max: 300 },
 } as const;
 
 type RateLimitAction = keyof typeof RATE_LIMITS_CONFIG;
@@ -100,16 +130,19 @@ async function checkRateLimit(request: Request, action: RateLimitAction, env: En
   return true;
 }
 
-async function validateToken(token: string, env: Env): Promise<{ valid: boolean; owner: string }> {
+async function validateToken(token: string, env: Env): Promise<{ valid: boolean; owner: string; hash: string }> {
   const hash = await hashToken(token);
   const row = await env.DB.prepare(
-    'SELECT owner FROM tokens WHERE token_hash = ?'
-  ).bind(hash).first<{ owner: string }>();
-  if (!row) return { valid: false, owner: '' };
+    'SELECT owner, expires_at FROM tokens WHERE token_hash = ?'
+  ).bind(hash).first<{ owner: string; expires_at: string | null }>();
+  if (!row) return { valid: false, owner: '', hash };
+  if (row.expires_at && new Date(row.expires_at) < new Date()) {
+    return { valid: false, owner: '', hash }; // expired
+  }
   await env.DB.prepare(
     'UPDATE tokens SET last_used_at = ? WHERE token_hash = ?'
   ).bind(new Date().toISOString(), hash).run();
-  return { valid: true, owner: row.owner };
+  return { valid: true, owner: row.owner, hash };
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -150,6 +183,11 @@ export default {
       return handleAuthRegister(request, env);
     }
 
+    // DELETE /v1/auth/token      — revoke the current token
+    if (pathname === '/v1/auth/token' && method === 'DELETE') {
+      return handleRevokeToken(request, env);
+    }
+
     // GET /v1/packages           — list / search packages
     if (pathname === '/v1/packages' && method === 'GET') {
       return handleList(request, env, searchParams);
@@ -164,6 +202,13 @@ export default {
     const pkgMatch = pathname.match(/^\/v1\/packages\/([^/]+)$/);
     if (pkgMatch && method === 'GET') {
       return handleGetPackage(env, decodeURIComponent(pkgMatch[1]));
+    }
+
+    // POST /v1/packages/:name/:version/deprecate
+    const deprecateMatch = pathname.match(/^\/v1\/packages\/([^/]+)\/([^/]+)\/deprecate$/);
+    if (deprecateMatch && method === 'POST') {
+      const [, name, version] = deprecateMatch;
+      return handleDeprecate(request, env, decodeURIComponent(name), decodeURIComponent(version));
     }
 
     // GET|DELETE /v1/packages/:name/:version
@@ -181,7 +226,7 @@ export default {
     const downloadMatch = pathname.match(/^\/v1\/packages\/([^/]+)\/([^/]+)\/download$/);
     if (downloadMatch && method === 'GET') {
       const [, name, version] = downloadMatch;
-      return handleDownload(env, decodeURIComponent(name), decodeURIComponent(version));
+      return handleDownload(env, request, decodeURIComponent(name), decodeURIComponent(version));
     }
 
     return err('Not found', 404);
@@ -608,27 +653,56 @@ async function handleList(request: Request, env: Env, params: URLSearchParams): 
     return err('Rate limit exceeded: max 200 searches per minute per IP', 429);
   }
   const q = params.get('q') || '';
+  const author = params.get('author') || '';
   const limit = Math.min(parseInt(params.get('limit') || '50', 10), 100);
   const offset = parseInt(params.get('offset') || '0', 10);
 
+  // Return one row per package name (the latest semver, non-deprecated preferred)
+  // We fetch all matching rows and deduplicate in JS for correct semver ordering
   let stmt: D1PreparedStatement;
+  const conditions: string[] = [];
+  const bindings: unknown[] = [];
+
   if (q) {
-    stmt = env.DB.prepare(
-      `SELECT name, version, description, author, tags, tarball_size, published_at
-       FROM packages
-       WHERE name LIKE ? OR description LIKE ?
-       ORDER BY published_at DESC LIMIT ? OFFSET ?`
-    ).bind(`%${q}%`, `%${q}%`, limit, offset);
-  } else {
-    stmt = env.DB.prepare(
-      `SELECT name, version, description, author, tags, tarball_size, published_at
-       FROM packages
-       ORDER BY published_at DESC LIMIT ? OFFSET ?`
-    ).bind(limit, offset);
+    conditions.push('(p.name LIKE ? OR p.description LIKE ?)');
+    bindings.push(`%${q}%`, `%${q}%`);
+  }
+  if (author) {
+    conditions.push('p.author = ?');
+    bindings.push(author);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  stmt = env.DB.prepare(
+    `SELECT p.name, p.version, p.description, p.author, p.tags,
+            p.tarball_size, p.published_at, p.download_count, p.deprecated
+     FROM packages p
+     ${where}
+     ORDER BY p.published_at DESC`
+  );
+  if (bindings.length) {
+    // D1 bind requires positional args
+    stmt = (stmt as D1PreparedStatement).bind(...bindings);
   }
 
   const { results } = await stmt.all();
-  const packages = (results || []).map(parsePackageRow);
+  const rows = (results || []).map(parsePackageRow);
+
+  // Deduplicate: keep best semver per name
+  const byName = new Map<string, ReturnType<typeof parsePackageRow>>();
+  for (const row of rows) {
+    const existing = byName.get(row.name);
+    if (!existing) { byName.set(row.name, row); continue; }
+    // Prefer non-deprecated; then higher semver
+    if (existing.deprecated && !row.deprecated) { byName.set(row.name, row); continue; }
+    if (!existing.deprecated && row.deprecated) continue;
+    if (semverGt(row.version, existing.version)) byName.set(row.name, row);
+  }
+
+  const packages = Array.from(byName.values())
+    .sort((a, b) => b.download_count - a.download_count || (b.published_at > a.published_at ? 1 : -1))
+    .slice(offset, offset + limit);
+
   return json({ success: true, packages, count: packages.length });
 }
 
@@ -645,10 +719,13 @@ async function handleAuthRegister(request: Request, env: Env): Promise<Response>
   const owner = (typeof body.owner === 'string' && body.owner.trim()) ? body.owner.trim() : 'unknown';
   const newToken = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   const hash = await hashToken(newToken);
+  const now = new Date();
+  const expiresAt = new Date(now);
+  expiresAt.setFullYear(expiresAt.getFullYear() + 1);
 
   await env.DB.prepare(
-    'INSERT INTO tokens (token_hash, owner, created_at) VALUES (?, ?, ?)'
-  ).bind(hash, owner, new Date().toISOString()).run();
+    'INSERT INTO tokens (token_hash, owner, created_at, expires_at) VALUES (?, ?, ?, ?)'
+  ).bind(hash, owner, now.toISOString(), expiresAt.toISOString()).run();
 
   return json({ success: true, token: newToken, owner }, 201);
 }
@@ -668,18 +745,21 @@ async function handleAuthSignup(request: Request, env: Env): Promise<Response> {
     return err('username must be 3–30 lowercase alphanumeric characters, hyphens, or underscores');
   }
 
-  // Check username not already taken
+  // Check username not already taken (generic error to prevent enumeration)
   const existing = await env.DB.prepare(
     'SELECT id FROM tokens WHERE owner = ? LIMIT 1'
   ).bind(username).first();
-  if (existing) return err(`Username '${username}' is already taken`, 409);
+  if (existing) return err('Username not available', 409);
 
   const newToken = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   const hash = await hashToken(newToken);
+  const now = new Date();
+  const expiresAt = new Date(now);
+  expiresAt.setFullYear(expiresAt.getFullYear() + 1); // tokens expire in 1 year
 
   await env.DB.prepare(
-    'INSERT INTO tokens (token_hash, owner, created_at) VALUES (?, ?, ?)'
-  ).bind(hash, username, new Date().toISOString()).run();
+    'INSERT INTO tokens (token_hash, owner, created_at, expires_at) VALUES (?, ?, ?, ?)'
+  ).bind(hash, username, now.toISOString(), expiresAt.toISOString()).run();
 
   return json({
     success: true,
@@ -697,83 +777,126 @@ async function handlePublish(request: Request, env: Env): Promise<Response> {
   const token = getToken(request);
   if (!token) return err('Authorization required. Set a token with: cerebrex auth login', 401);
 
-  const { valid, owner } = await validateToken(token, env);
+  const { valid, owner, hash: tokenHash } = await validateToken(token, env);
   if (!valid) return err('Invalid or revoked token. Run: cerebrex auth login', 401);
 
-  let body: {
-    name?: string;
-    version?: string;
-    description?: string;
-    tags?: string[];
-    tarball?: string;
-  };
+  // Per-token rate limit: max 5 publishes per minute per token
+  const tokenRlKey = `rl:pub_tok:${tokenHash}:${Math.floor(Date.now() / 60_000)}`;
+  const tokenRlCount = parseInt((await env.RATE_LIMITS.get(tokenRlKey)) || '0', 10);
+  if (tokenRlCount >= 5) return err('Rate limit exceeded: max 5 publishes per minute per token', 429);
+  await env.RATE_LIMITS.put(tokenRlKey, String(tokenRlCount + 1), { expirationTtl: 120 });
 
-  try {
-    body = await request.json() as typeof body;
-  } catch {
-    return err('Invalid JSON body');
+  // Parse body — support both multipart/form-data and JSON (backward compat)
+  let name: string | undefined;
+  let version: string | undefined;
+  let description = '';
+  let tags: string[] = [];
+  let readme = '';
+  let tarballBytes: Uint8Array;
+
+  const contentType = request.headers.get('Content-Type') || '';
+
+  if (contentType.includes('multipart/form-data')) {
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return err('Invalid multipart body');
+    }
+    name = (form.get('name') as string | null) ?? undefined;
+    version = (form.get('version') as string | null) ?? undefined;
+    description = (form.get('description') as string | null) ?? '';
+    readme = (form.get('readme') as string | null) ?? '';
+    const rawTags = (form.get('tags') as string | null) ?? '[]';
+    try { tags = JSON.parse(rawTags) as string[]; } catch { tags = []; }
+    const tarballFile = form.get('tarball') as File | null;
+    if (!tarballFile) return err('tarball field is required');
+    tarballBytes = new Uint8Array(await tarballFile.arrayBuffer());
+  } else {
+    let body: { name?: string; version?: string; description?: string; tags?: string[]; readme?: string; tarball?: string };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return err('Invalid JSON body');
+    }
+    name = body.name;
+    version = body.version;
+    description = body.description ?? '';
+    tags = body.tags ?? [];
+    readme = body.readme ?? '';
+    const tarballB64 = body.tarball;
+    if (!tarballB64 || typeof tarballB64 !== 'string') return err('tarball (base64) is required');
+    try {
+      const binary = atob(tarballB64);
+      tarballBytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) tarballBytes[i] = binary.charCodeAt(i);
+    } catch {
+      return err('tarball must be valid base64');
+    }
   }
-
-  const { name, version, description = '', tags = [], tarball } = body;
 
   if (!name || typeof name !== 'string') return err('name is required');
   if (!version || typeof version !== 'string') return err('version is required');
-  if (!tarball || typeof tarball !== 'string') return err('tarball (base64) is required');
 
   if (!/^\d+\.\d+\.\d+/.test(version)) return err('version must be semver (e.g. 1.0.0)');
-
   if (!/^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9\-_.]*$/.test(name)) {
     return err('Invalid package name. Use lowercase letters, numbers, hyphens, and dots.');
   }
 
-  let tarballBytes: Uint8Array;
-  try {
-    const binary = atob(tarball);
-    tarballBytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) tarballBytes[i] = binary.charCodeAt(i);
-  } catch {
-    return err('tarball must be valid base64');
+  if (tarballBytes!.length < 1024) return err('Tarball too small (minimum 1KB).');
+  if (tarballBytes!.length > 25 * 1024 * 1024) return err('Tarball exceeds 25MB limit');
+
+  // ── Name ownership: only the original author can publish new versions ────────
+  const nameOwnerRow = await env.DB.prepare(
+    'SELECT author FROM packages WHERE name = ? LIMIT 1'
+  ).bind(name).first<{ author: string }>();
+  if (nameOwnerRow && nameOwnerRow.author !== owner) {
+    return err(`Package '${name}' is owned by another user`, 403);
   }
 
-  if (tarballBytes.length < 1024) {
-    return err('Tarball is too small (minimum 1KB). This does not look like a valid package.');
+  // ── Scope ownership: only the first publisher of @scope/* can use that scope ─
+  const scopeMatch = name.match(/^@([a-z0-9-]+)\//);
+  if (scopeMatch) {
+    const scope = scopeMatch[1];
+    const scopeOwnerRow = await env.DB.prepare(
+      'SELECT author FROM packages WHERE name LIKE ? LIMIT 1'
+    ).bind(`@${scope}/%`).first<{ author: string }>();
+    if (scopeOwnerRow && scopeOwnerRow.author !== owner) {
+      return err(`Scope '@${scope}' is owned by another user`, 403);
+    }
   }
 
-  if (tarballBytes.length > 25 * 1024 * 1024) {
-    return err('Tarball exceeds 25MB limit');
-  }
-
-  const tarballKey = `${name}@${version}.tgz`;
-
+  // ── Duplicate version check ──────────────────────────────────────────────────
   const existing = await env.DB.prepare(
     'SELECT id FROM packages WHERE name = ? AND version = ?'
   ).bind(name, version).first();
-
   if (existing) return err(`${name}@${version} already published. Bump the version.`, 409);
 
-  const sha256 = await hashBytes(tarballBytes);
-  await env.TARBALLS.put(tarballKey, tarballBytes.buffer as ArrayBuffer);
+  const sha256 = await hashBytes(tarballBytes!);
+  const tarballKey = `${name}@${version}.tgz`;
+  await env.TARBALLS.put(tarballKey, tarballBytes!.buffer as ArrayBuffer);
 
   const publishedAt = new Date().toISOString();
   await env.DB.prepare(
-    `INSERT INTO packages (name, version, description, author, tags, tarball_key, tarball_size, sha256, published_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO packages (name, version, description, author, tags, tarball_key, tarball_size, sha256, published_at, readme)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     name, version, description, owner,
     JSON.stringify(tags), tarballKey,
-    tarballBytes.length, sha256, publishedAt
+    tarballBytes!.length, sha256, publishedAt, readme
   ).run();
 
   return json({
     success: true,
-    package: { name, version, description, tags, tarball_size: tarballBytes.length, sha256, published_at: publishedAt },
+    package: { name, version, description, tags, tarball_size: tarballBytes!.length, sha256, published_at: publishedAt },
     url: `https://registry.therealcool.site/v1/packages/${encodeURIComponent(name)}/${version}`,
   }, 201);
 }
 
 async function handleGetPackage(env: Env, name: string): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT name, version, description, author, tags, tarball_size, sha256, published_at
+    `SELECT name, version, description, author, tags, tarball_size, sha256, published_at,
+            download_count, deprecated, readme
      FROM packages WHERE name = ? ORDER BY published_at DESC`
   ).bind(name).all();
 
@@ -783,15 +906,14 @@ async function handleGetPackage(env: Env, name: string): Promise<Response> {
 
 async function handleGetVersion(env: Env, name: string, version: string): Promise<Response> {
   const resolvedVersion = version === 'latest'
-    ? (await env.DB.prepare(
-        'SELECT version FROM packages WHERE name = ? ORDER BY published_at DESC LIMIT 1'
-      ).bind(name).first<{ version: string }>())?.version
+    ? await resolveLatestVersion(env, name)
     : version;
 
   if (!resolvedVersion) return err(`Package '${name}' not found`, 404);
 
   const row = await env.DB.prepare(
-    `SELECT name, version, description, author, tags, tarball_size, sha256, published_at
+    `SELECT name, version, description, author, tags, tarball_size, sha256, published_at,
+            download_count, deprecated, readme
      FROM packages WHERE name = ? AND version = ?`
   ).bind(name, resolvedVersion).first();
 
@@ -805,11 +927,13 @@ async function handleGetVersion(env: Env, name: string, version: string): Promis
   });
 }
 
-async function handleDownload(env: Env, name: string, version: string): Promise<Response> {
+async function handleDownload(env: Env, request: Request, name: string, version: string): Promise<Response> {
+  if (!await checkRateLimit(request, 'download', env)) {
+    return err('Rate limit exceeded: max 300 downloads per minute per IP', 429);
+  }
+
   const resolvedVersion = version === 'latest'
-    ? (await env.DB.prepare(
-        'SELECT version FROM packages WHERE name = ? ORDER BY published_at DESC LIMIT 1'
-      ).bind(name).first<{ version: string }>())?.version
+    ? await resolveLatestVersion(env, name)
     : version;
 
   if (!resolvedVersion) return err(`Package '${name}' not found`, 404);
@@ -822,6 +946,11 @@ async function handleDownload(env: Env, name: string, version: string): Promise<
 
   const tarball = await env.TARBALLS.get(row.tarball_key, 'arrayBuffer');
   if (!tarball) return err('Tarball not found in storage', 404);
+
+  // Increment download count (fire-and-forget — don't block the response)
+  env.DB.prepare(
+    'UPDATE packages SET download_count = download_count + 1 WHERE name = ? AND version = ?'
+  ).bind(name, resolvedVersion).run().catch(() => { /* non-critical */ });
 
   return new Response(tarball, {
     headers: {
@@ -837,19 +966,68 @@ async function handleUnpublish(request: Request, env: Env, name: string, version
   const token = getToken(request);
   if (!token) return err('Authorization required', 401);
 
-  const { valid } = await validateToken(token, env);
+  const { valid, owner } = await validateToken(token, env);
   if (!valid) return err('Invalid or revoked token', 401);
 
   const row = await env.DB.prepare(
-    'SELECT tarball_key FROM packages WHERE name = ? AND version = ?'
-  ).bind(name, version).first<{ tarball_key: string }>();
+    'SELECT tarball_key, author FROM packages WHERE name = ? AND version = ?'
+  ).bind(name, version).first<{ tarball_key: string; author: string }>();
 
   if (!row) return err(`${name}@${version} not found`, 404);
+
+  // Only the package owner (or admin) can unpublish
+  const isAdmin = env.REGISTRY_ADMIN_TOKEN && token === env.REGISTRY_ADMIN_TOKEN;
+  if (!isAdmin && row.author !== owner) {
+    return err(`You do not own '${name}'`, 403);
+  }
 
   await env.TARBALLS.delete(row.tarball_key);
   await env.DB.prepare('DELETE FROM packages WHERE name = ? AND version = ?').bind(name, version).run();
 
   return json({ success: true, message: `${name}@${version} unpublished` });
+}
+
+async function handleRevokeToken(request: Request, env: Env): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authorization required', 401);
+
+  const { valid, hash } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
+
+  await env.DB.prepare('DELETE FROM tokens WHERE token_hash = ?').bind(hash).run();
+  return json({ success: true, message: 'Token revoked. Run: cerebrex auth logout' });
+}
+
+async function handleDeprecate(request: Request, env: Env, name: string, version: string): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authorization required', 401);
+
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or revoked token', 401);
+
+  const row = await env.DB.prepare(
+    'SELECT author FROM packages WHERE name = ? AND version = ?'
+  ).bind(name, version).first<{ author: string }>();
+
+  if (!row) return err(`${name}@${version} not found`, 404);
+
+  const isAdmin = env.REGISTRY_ADMIN_TOKEN && token === env.REGISTRY_ADMIN_TOKEN;
+  if (!isAdmin && row.author !== owner) {
+    return err(`You do not own '${name}'`, 403);
+  }
+
+  let body: { deprecated?: boolean } = { deprecated: true };
+  try { body = await request.json() as typeof body; } catch { /* default to deprecating */ }
+  const deprecated = body.deprecated !== false ? 1 : 0;
+
+  await env.DB.prepare(
+    'UPDATE packages SET deprecated = ? WHERE name = ? AND version = ?'
+  ).bind(deprecated, name, version).run();
+
+  return json({
+    success: true,
+    message: deprecated ? `${name}@${version} marked as deprecated` : `${name}@${version} deprecation removed`,
+  });
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
@@ -864,5 +1042,8 @@ function parsePackageRow(row: Record<string, unknown>) {
     tarball_size: row.tarball_size as number,
     sha256: (row.sha256 as string) || '',
     published_at: row.published_at as string,
+    download_count: (row.download_count as number) || 0,
+    deprecated: !!(row.deprecated as number),
+    readme: (row.readme as string) || '',
   };
 }

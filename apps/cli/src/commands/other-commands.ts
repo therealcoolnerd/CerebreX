@@ -8,6 +8,8 @@ import crypto from 'node:crypto';
 import { RegistryClient } from '@cerebrex/registry';
 import { getAuthToken } from './auth.js';
 
+const REGISTRY_URL = 'https://registry.therealcool.site';
+
 // ── DEPLOY ────────────────────────────────────────────────────────────────────
 export const deployCommand = new Command('deploy')
   .description('Deploy your MCP server to Cloudflare Workers')
@@ -247,10 +249,18 @@ export const validateCommand = new Command('validate')
 // ── PUBLISH ───────────────────────────────────────────────────────────────────
 export const publishCommand = new Command('publish')
   .description('Publish your MCP server to the CerebreX Registry')
+  .addHelpText('after', `
+Examples:
+  cerebrex publish --dir ./cerebrex-output
+  cerebrex publish --dir ./cerebrex-output --readme ./README.md
+  cerebrex publish --dir ./cerebrex-output --tag beta
+  cerebrex publish --name @myorg/my-mcp --version 1.2.0
+  `)
   .option('-d, --dir <path>', 'Server directory to publish', './cerebrex-output')
   .option('-n, --name <packageName>', 'Package name (defaults to package.json name)')
   .option('--version <semver>', 'Version to publish (defaults to package.json version)')
   .option('--tag <tag>', 'Dist tag (latest, beta, etc.)', 'latest')
+  .option('--readme <file>', 'Path to README file to include (defaults to README.md in server dir)')
   .action(async (options) => {
     console.log(chalk.blue('\n📦 Publishing to CerebreX Registry\n'));
 
@@ -284,6 +294,15 @@ export const publishCommand = new Command('publish')
       process.exit(1);
     }
 
+    // Resolve README
+    let readme = '';
+    const readmePath = options.readme
+      ? path.resolve(process.cwd(), options.readme)
+      : path.join(serverDir, 'README.md');
+    if (fs.existsSync(readmePath)) {
+      readme = fs.readFileSync(readmePath, 'utf-8');
+    }
+
     const spinner = ora('Creating package tarball...').start();
 
     try {
@@ -296,26 +315,93 @@ export const publishCommand = new Command('publish')
       spinner.text = 'Uploading to CerebreX Registry...';
 
       const tarball = fs.readFileSync(tarPath);
-      const client = new RegistryClient({ authToken: token });
 
-      const result = await client.publish(tarball, {
-        name: packageName,
-        version,
-        description: pkg.description || '',
-        tags: [options.tag],
+      // Build multipart form-data
+      const form = new FormData();
+      form.append('tarball', new Blob([tarball], { type: 'application/gzip' }), tarName);
+      form.append('name', packageName);
+      form.append('version', version ?? '');
+      form.append('description', pkg.description ?? '');
+      form.append('tags', options.tag);
+      if (readme) form.append('readme', readme);
+
+      const res = await fetch(`${REGISTRY_URL}/v1/packages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
       });
 
+      const data = await res.json() as { success?: boolean; url?: string; error?: string };
+
       fs.unlinkSync(tarPath);
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
       spinner.succeed(chalk.green('Package published!'));
       console.log(chalk.cyan('\n  View your package at:'));
-      console.log(chalk.bold(`  ${result.url}\n`));
+      console.log(chalk.bold(`  ${data.url ?? `${REGISTRY_URL}/packages/${encodeURIComponent(packageName)}`}\n`));
     } catch (err) {
       spinner.fail(chalk.red('Publish failed'));
       const msg = (err as Error).message;
       console.error(chalk.dim(`  ${msg}`));
       if (/fetch|ECONNREFUSED|ENOTFOUND/.test(msg)) {
-        console.error(chalk.dim('\n  Registry: https://registry.therealcool.site\n'));
+        console.error(chalk.dim(`\n  Registry: ${REGISTRY_URL}\n`));
       }
+      process.exit(1);
+    }
+  });
+
+// ── DEPRECATE ─────────────────────────────────────────────────────────────────
+export const deprecateCommand = new Command('deprecate')
+  .description('Deprecate (or un-deprecate) a published package version')
+  .argument('<package>', 'Package name (e.g. my-mcp or @org/my-mcp)')
+  .argument('<version>', 'Version to deprecate (e.g. 1.2.3)')
+  .option('--undo', 'Remove the deprecation flag')
+  .addHelpText('after', `
+Examples:
+  cerebrex deprecate my-mcp 1.0.0
+  cerebrex deprecate @myorg/my-mcp 2.1.0 --undo
+  `)
+  .action(async (packageName, version, options) => {
+    const token = getAuthToken();
+    if (!token) {
+      console.error(chalk.yellow('  Not authenticated.'));
+      console.error(chalk.dim('  Run: cerebrex auth login\n'));
+      process.exit(1);
+    }
+
+    const action = options.undo ? 'Removing deprecation' : 'Deprecating';
+    const spinner = ora(`${action} ${chalk.bold(packageName)}@${version}...`).start();
+
+    try {
+      const encoded = encodeURIComponent(packageName);
+      const res = await fetch(`${REGISTRY_URL}/v1/packages/${encoded}/${version}/deprecate`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deprecated: !options.undo }),
+      });
+
+      const data = await res.json() as { success?: boolean; error?: string };
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      if (options.undo) {
+        spinner.succeed(chalk.green(`Deprecation removed for ${chalk.bold(packageName)}@${version}`));
+      } else {
+        spinner.succeed(chalk.yellow(`${chalk.bold(packageName)}@${version} marked as deprecated`));
+        console.log(chalk.dim('  Users installing this version will see a deprecation warning.'));
+        console.log(chalk.dim(`  To undo: cerebrex deprecate ${packageName} ${version} --undo\n`));
+      }
+    } catch (err) {
+      spinner.fail(chalk.red('Deprecate failed'));
+      console.error(chalk.dim(`  ${(err as Error).message}`));
       process.exit(1);
     }
   });
