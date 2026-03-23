@@ -61,7 +61,7 @@ interface Task {
 
 // ── JWT-lite (HMAC-SHA256) ────────────────────────────────────────────────────
 
-function signToken(payload: Record<string, unknown>, secret: string): string {
+export function signToken(payload: Record<string, unknown>, secret: string): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: '1' })).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const enriched = { ...payload, jti: crypto.randomUUID(), nbf: now };
@@ -70,7 +70,7 @@ function signToken(payload: Record<string, unknown>, secret: string): string {
   return `${header}.${body}.${sig}`;
 }
 
-function verifyToken(token: string, secret: string): Record<string, unknown> | null {
+export function verifyToken(token: string, secret: string): Record<string, unknown> | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;

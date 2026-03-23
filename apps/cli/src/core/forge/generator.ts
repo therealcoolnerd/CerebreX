@@ -169,20 +169,61 @@ ${schemaFields}
     return fields.join('\n');
   }
 
-  private schemaToZod(schema: any): string {
-    if (!schema) return 'z.unknown()';
+  private schemaToZod(schema: any, depth = 0): string {
+    if (!schema || depth > 8) return 'z.unknown()';
+
+    // Composition keywords — check before type switch
+    if (schema.oneOf || schema.anyOf) {
+      const variants = (schema.oneOf ?? schema.anyOf).map((s: any) => this.schemaToZod(s, depth + 1));
+      return variants.length === 1 ? variants[0] : `z.union([${variants.join(', ')}])`;
+    }
+    if (schema.allOf) {
+      // Merge all properties and required arrays from each schema in allOf
+      const merged: { type: string; properties: Record<string, any>; required: string[] } = {
+        type: 'object', properties: {}, required: [],
+      };
+      for (const s of schema.allOf) {
+        if (s.properties) Object.assign(merged.properties, s.properties);
+        if (s.required) merged.required.push(...s.required);
+      }
+      return this.schemaToZod(merged, depth + 1);
+    }
+
     switch (schema.type) {
-      case 'string':
-        return schema.enum ? `z.enum([${schema.enum.map((e: string) => JSON.stringify(e)).join(', ')}])` : 'z.string()';
-      case 'integer':
+      case 'string': {
+        if (schema.enum) return `z.enum([${schema.enum.map((e: string) => JSON.stringify(e)).join(', ')}])`;
+        let s = 'z.string()';
+        if (schema.format === 'date-time') s = 'z.string().datetime()';
+        else if (schema.format === 'email') s = 'z.string().email()';
+        else if (schema.format === 'uri') s = 'z.string().url()';
+        else if (schema.minLength != null) s = `z.string().min(${schema.minLength})`;
+        return s;
+      }
+      case 'integer': {
+        let s = 'z.number().int()';
+        if (schema.minimum != null) s = `z.number().int().min(${schema.minimum})`;
+        return s;
+      }
       case 'number':
         return 'z.number()';
       case 'boolean':
         return 'z.boolean()';
       case 'array':
-        return `z.array(${this.schemaToZod(schema.items || {})})`;
-      case 'object':
+        return `z.array(${this.schemaToZod(schema.items || {}, depth + 1)})`;
+      case 'object': {
+        if (schema.properties) {
+          const required: string[] = schema.required ?? [];
+          const props = Object.entries(schema.properties).map(([k, v]: [string, any]) => {
+            const zodType = this.schemaToZod(v, depth + 1);
+            return `${k}: ${required.includes(k) ? zodType : `${zodType}.optional()`}`;
+          });
+          return `z.object({ ${props.join(', ')} })`;
+        }
+        if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+          return `z.record(${this.schemaToZod(schema.additionalProperties, depth + 1)})`;
+        }
         return 'z.record(z.unknown())';
+      }
       default:
         return 'z.unknown()';
     }

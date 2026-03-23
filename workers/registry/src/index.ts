@@ -21,6 +21,7 @@
 export interface Env {
   DB: D1Database;
   TARBALLS: KVNamespace;
+  RATE_LIMITS: KVNamespace;
   ENVIRONMENT: string;
   REGISTRY_ADMIN_TOKEN?: string;
 }
@@ -74,6 +75,30 @@ async function hashBytes(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+
+const RATE_LIMITS_CONFIG = {
+  publish: { windowMs: 60_000, max: 10 },
+  search:  { windowMs: 60_000, max: 200 },
+} as const;
+
+type RateLimitAction = keyof typeof RATE_LIMITS_CONFIG;
+
+async function checkRateLimit(request: Request, action: RateLimitAction, env: Env): Promise<boolean> {
+  const ip = request.headers.get('CF-Connecting-IP') ?? request.headers.get('X-Forwarded-For') ?? 'unknown';
+  const { windowMs, max } = RATE_LIMITS_CONFIG[action];
+  const window = Math.floor(Date.now() / windowMs);
+  const key = `rl:${action}:${ip}:${window}`;
+
+  const raw = await env.RATE_LIMITS.get(key);
+  const count = raw ? parseInt(raw, 10) : 0;
+  if (count >= max) return false; // rate limit exceeded
+
+  // Increment — store for 2 windows to cover boundary reads
+  await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: Math.ceil((windowMs * 2) / 1000) });
+  return true;
+}
+
 async function validateToken(token: string, env: Env): Promise<{ valid: boolean; owner: string }> {
   const hash = await hashToken(token);
   const row = await env.DB.prepare(
@@ -121,7 +146,7 @@ export default {
 
     // GET /v1/packages           — list / search packages
     if (pathname === '/v1/packages' && method === 'GET') {
-      return handleList(env, searchParams);
+      return handleList(request, env, searchParams);
     }
 
     // POST /v1/packages          — publish a package
@@ -572,7 +597,10 @@ document.addEventListener('drop',e=>{
 
 // ── API Handlers ──────────────────────────────────────────────────────────────
 
-async function handleList(env: Env, params: URLSearchParams): Promise<Response> {
+async function handleList(request: Request, env: Env, params: URLSearchParams): Promise<Response> {
+  if (!await checkRateLimit(request, 'search', env)) {
+    return err('Rate limit exceeded: max 200 searches per minute per IP', 429);
+  }
   const q = params.get('q') || '';
   const limit = Math.min(parseInt(params.get('limit') || '50', 10), 100);
   const offset = parseInt(params.get('offset') || '0', 10);
@@ -620,6 +648,10 @@ async function handleAuthRegister(request: Request, env: Env): Promise<Response>
 }
 
 async function handlePublish(request: Request, env: Env): Promise<Response> {
+  if (!await checkRateLimit(request, 'publish', env)) {
+    return err('Rate limit exceeded: max 10 publishes per minute per IP', 429);
+  }
+
   const token = getToken(request);
   if (!token) return err('Authorization required. Set a token with: cerebrex auth login', 401);
 

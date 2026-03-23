@@ -39,6 +39,41 @@ export async function parseSpec(specPathOrUrl: string): Promise<ParsedSpec> {
   return transformSpec(specObj);
 }
 
+// ── $ref resolution ──────────────────────────────────────────────────────────
+
+/** Resolve a local JSON Pointer ref like "#/components/schemas/Pet" */
+function resolveRef(spec: OpenAPISpec, ref: string): any {
+  if (!ref.startsWith('#/')) return {};
+  const parts = ref.slice(2).split('/');
+  let node: any = spec;
+  for (const part of parts) {
+    const key = part.replace(/~1/g, '/').replace(/~0/g, '~');
+    node = node?.[key];
+    if (node === undefined) return {};
+  }
+  return node;
+}
+
+/** Recursively resolve all $ref pointers in a schema (max 10 levels deep). */
+function resolveSchema(spec: OpenAPISpec, schema: any, depth = 0): any {
+  if (!schema || depth > 10) return schema;
+  if (schema.$ref) return resolveSchema(spec, resolveRef(spec, schema.$ref as string), depth + 1);
+  if (schema.allOf) return { ...schema, allOf: schema.allOf.map((s: any) => resolveSchema(spec, s, depth + 1)) };
+  if (schema.oneOf) return { ...schema, oneOf: schema.oneOf.map((s: any) => resolveSchema(spec, s, depth + 1)) };
+  if (schema.anyOf) return { ...schema, anyOf: schema.anyOf.map((s: any) => resolveSchema(spec, s, depth + 1)) };
+  if (schema.type === 'object' && schema.properties) {
+    const props: Record<string, any> = {};
+    for (const [k, v] of Object.entries(schema.properties)) {
+      props[k] = resolveSchema(spec, v, depth + 1);
+    }
+    return { ...schema, properties: props };
+  }
+  if (schema.type === 'array' && schema.items) {
+    return { ...schema, items: resolveSchema(spec, schema.items, depth + 1) };
+  }
+  return schema;
+}
+
 /**
  * Transform raw OpenAPI spec into CerebreX's internal ParsedSpec IR.
  */
@@ -60,12 +95,18 @@ function transformSpec(spec: OpenAPISpec): ParsedSpec {
         ? sanitizeToolName(operation.operationId)
         : generateToolName(method, pathStr);
 
+      // Resolve $ref in parameters so generator always gets concrete schemas
+      const resolvedParameters = (operation.parameters || []).map((p: any) => ({
+        ...p,
+        schema: resolveSchema(spec, p.schema || { type: 'string' }),
+      }));
+
       endpoints.push({
         path: pathStr,
         method: method.toUpperCase(),
         toolName,
         description: operation.summary || operation.description || `${method.toUpperCase()} ${pathStr}`,
-        parameters: operation.parameters || [],
+        parameters: resolvedParameters,
         requestBody: operation.requestBody,
         responses: operation.responses || {},
         tags: operation.tags || [],

@@ -67,7 +67,7 @@ function collectTsFiles(dir: string): string[] {
 }
 
 /** Returns a description of the first hardcoded-secret pattern matched, or null. */
-function findHardcodedSecret(content: string): string | null {
+export function findHardcodedSecret(content: string): string | null {
   const patterns: Array<[RegExp, string]> = [
     [/sk-[a-zA-Z0-9\-_]{20,}/, 'OpenAI/Anthropic key (sk-...)'],
     [/AIza[0-9A-Za-z\-_]{35}/, 'Google API key (AIza...)'],
