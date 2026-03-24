@@ -107,10 +107,12 @@ async function resolveLatestVersion(env: Env, name: string): Promise<string | nu
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 
 const RATE_LIMITS_CONFIG = {
-  publish:  { windowMs: 60_000,       max: 10  },
-  search:   { windowMs: 60_000,       max: 200 },
-  signup:   { windowMs: 3_600_000,    max: 3   },  // 3 new accounts per IP per hour
-  download: { windowMs: 60_000,       max: 300 },
+  publish:      { windowMs: 60_000,       max: 10  },
+  search:       { windowMs: 60_000,       max: 200 },
+  signup:       { windowMs: 3_600_000,    max: 3   },  // 3 new accounts per IP per hour
+  download:     { windowMs: 60_000,       max: 300 },
+  memex_write:  { windowMs: 60_000,       max: 120 },  // 2/sec sustained memex writes
+  hive_write:   { windowMs: 60_000,       max: 30  },  // 30 hive mutations per minute
 } as const;
 
 type RateLimitAction = keyof typeof RATE_LIMITS_CONFIG;
@@ -159,11 +161,11 @@ export default {
 
     // ── Web UI routes ──────────────────────────────────────────────────────
     if (method === 'GET' && (pathname === '/' || pathname === '/ui' || pathname === '/ui/')) {
-      return html(registryUI());
+      return html(await registryUI(env));
     }
 
     if (method === 'GET' && (pathname === '/ui/trace' || pathname === '/ui/trace/')) {
-      return html(traceUI());
+      return new Response(null, { status: 302, headers: { Location: '/#trace' } });
     }
 
     // ── Health ─────────────────────────────────────────────────────────────
@@ -181,6 +183,11 @@ export default {
     // POST /v1/auth/register     — create a publish token (admin only)
     if (pathname === '/v1/auth/register' && method === 'POST') {
       return handleAuthRegister(request, env);
+    }
+
+    // POST /v1/auth/tokens       — self-service additional token creation
+    if (pathname === '/v1/auth/tokens' && method === 'POST') {
+      return handleCreateToken(request, env);
     }
 
     // DELETE /v1/auth/token      — revoke the current token
@@ -236,6 +243,21 @@ export default {
     const userMatch = pathname.match(/^\/v1\/users\/([^/]+)$/);
     if (userMatch && method === 'GET') return handleGetUser(env, decodeURIComponent(userMatch[1]));
 
+    // ── MEMEX routes ────────────────────────────────────────────────────────
+    if (pathname === '/v1/memex' && method === 'GET') return handleMemexRecall(request, env);
+    if (pathname === '/v1/memex' && method === 'POST') return handleMemexStore(request, env);
+    if (pathname === '/v1/memex/namespaces' && method === 'GET') return handleMemexNamespaces(request, env);
+    const memexIdMatch = pathname.match(/^\/v1\/memex\/([^/]+)$/);
+    if (memexIdMatch && method === 'DELETE') return handleMemexForget(request, env, memexIdMatch[1]);
+
+    // ── HIVE routes ─────────────────────────────────────────────────────────
+    if (pathname === '/v1/hive' && method === 'GET') return handleHiveList(request, env);
+    if (pathname === '/v1/hive' && method === 'POST') return handleHiveCreate(request, env);
+    const hiveIdMatch = pathname.match(/^\/v1\/hive\/([^/]+)$/);
+    if (hiveIdMatch && method === 'GET') return handleHiveGet(request, env, hiveIdMatch[1]);
+    if (hiveIdMatch && method === 'PATCH') return handleHiveUpdate(request, env, hiveIdMatch[1]);
+    if (hiveIdMatch && method === 'DELETE') return handleHiveDelete(request, env, hiveIdMatch[1]);
+
     // ── Admin routes ────────────────────────────────────────────────────────
     if (pathname === '/v1/admin/users' && method === 'GET') return handleAdminListUsers(request, env);
 
@@ -261,421 +283,1764 @@ export default {
   },
 };
 
-// ── Web UI — Registry Browser ─────────────────────────────────────────────────
+// ── HIVE Handlers ─────────────────────────────────────────────────────────────
 
-function registryUI(): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>CerebreX Registry</title>
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{
-      --bg:#0d0d0f;--surface:#16161a;--border:#2a2a30;
-      --text:#e8e8f0;--muted:#6b6b80;
-      --cyan:#00c8e0;--green:#22d3a0;--yellow:#f5a623;--red:#f56060;--purple:#a560f5;
-    }
-    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-    header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 32px;display:flex;align-items:center;gap:16px}
-    .logo{font-size:20px;font-weight:700;color:var(--cyan);letter-spacing:-0.5px}
-    .logo span{color:var(--muted);font-weight:400;font-size:14px}
-    .header-links{margin-left:auto;display:flex;gap:16px;align-items:center}
-    .header-links a{color:var(--muted);text-decoration:none;font-size:13px;transition:color .1s}
-    .header-links a:hover{color:var(--text)}
-    .hero{padding:48px 32px 32px;text-align:center}
-    .hero h1{font-size:28px;font-weight:700;margin-bottom:8px}
-    .hero p{color:var(--muted);font-size:15px;margin-bottom:28px}
-    .search-wrap{max-width:560px;margin:0 auto;position:relative}
-    .search-wrap input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px 12px 44px;font-size:15px;color:var(--text);outline:none;transition:border-color .15s}
-    .search-wrap input:focus{border-color:var(--cyan)}
-    .search-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:18px;pointer-events:none}
-    .content{max-width:1100px;margin:0 auto;padding:24px 32px}
-    .stats-row{display:flex;gap:8px;align-items:center;margin-bottom:20px;font-size:13px;color:var(--muted)}
-    .stats-row strong{color:var(--text)}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-    .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;cursor:pointer;transition:border-color .1s,transform .1s;position:relative}
-    .card:hover{border-color:var(--cyan);transform:translateY(-1px)}
-    .card.featured{border-color:var(--yellow)}
-    .card-name{font-size:15px;font-weight:600;color:var(--cyan);margin-bottom:4px}
-    .card-desc{font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.5;min-height:38px}
-    .featured-badge{position:absolute;top:10px;right:12px;background:rgba(245,166,35,.15);color:var(--yellow);border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;letter-spacing:.5px}
-    .card-footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-    .tag{background:rgba(0,200,224,.1);color:var(--cyan);border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600}
-    .version-badge{color:var(--muted);font-size:11px;margin-left:auto}
-    .empty{text-align:center;padding:64px 32px;color:var(--muted);font-size:15px}
-    .loading{text-align:center;padding:64px;color:var(--muted)}
-    /* Modal */
-    .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;padding:24px}
-    .overlay.show{display:flex}
-    .modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:600px;max-height:85vh;overflow-y:auto}
-    .modal-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
-    .modal-title{font-size:18px;font-weight:700;color:var(--cyan)}
-    .modal-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1}
-    .modal-close:hover{color:var(--text)}
-    .modal-body{padding:24px}
-    .modal-desc{color:var(--muted);font-size:14px;line-height:1.6;margin-bottom:20px}
-    .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:8px}
-    .install-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:monospace;font-size:13px;display:flex;align-items:center;gap:10px;margin-bottom:20px}
-    .install-cmd{flex:1;word-break:break-all}
-    .copy-btn{background:var(--border);border:none;color:var(--text);border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap;transition:background .1s}
-    .copy-btn:hover{background:var(--cyan);color:var(--bg)}
-    .versions-list{display:flex;flex-direction:column;gap:6px}
-    .version-row{display:flex;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px}
-    .version-row .v{color:var(--cyan);font-weight:600;margin-right:auto}
-    .version-row .date{color:var(--muted);font-size:11px}
-    .tags-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px}
-    ::-webkit-scrollbar{width:6px;height:6px}
-    ::-webkit-scrollbar-track{background:transparent}
-    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-    @media(max-width:600px){.content{padding:16px}.hero{padding:32px 16px 20px}.grid{grid-template-columns:1fr}}
-  </style>
-</head>
-<body>
-<header>
-  <div class="logo">CerebreX <span>Registry</span></div>
-  <div class="header-links">
-    <a href="/ui/trace">Trace Explorer</a>
-    <a href="https://github.com/arealcoolco/CerebreX" target="_blank">GitHub</a>
-    <a href="https://www.npmjs.com/package/cerebrex" target="_blank">npm</a>
-    <a href="/account" id="acct-link" style="color:var(--cyan);font-weight:600">My Account</a>
-  </div>
-</header>
-<div class="hero">
-  <h1>MCP Server Registry</h1>
-  <p>Discover and install community MCP servers for your AI agents</p>
-  <div class="search-wrap">
-    <span class="search-icon">🔍</span>
-    <input type="text" id="search" placeholder="Search packages..." autocomplete="off"/>
-  </div>
-</div>
-<div class="content">
-  <div class="stats-row" id="stats">Loading...</div>
-  <div class="grid" id="grid"><div class="loading">Loading packages...</div></div>
-</div>
-
-<!-- Package detail modal -->
-<div class="overlay" id="overlay" onclick="closeModal(event)">
-  <div class="modal" id="modal">
-    <div class="modal-header">
-      <div class="modal-title" id="modal-name"></div>
-      <button class="modal-close" onclick="document.getElementById('overlay').classList.remove('show')">×</button>
-    </div>
-    <div class="modal-body" id="modal-body"></div>
-  </div>
-</div>
-
-<script>
-let allPackages = [];
-let searchTimer = null;
-
-async function load(q = '') {
-  const url = '/v1/packages?limit=100' + (q ? '&q=' + encodeURIComponent(q) : '');
+async function handleHiveList(request: Request, env: Env): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
   try {
-    const r = await fetch(url);
-    const d = await r.json();
-    allPackages = d.packages || [];
-    render(allPackages, q);
-    document.getElementById('stats').innerHTML =
-      '<strong>' + (d.count || 0) + '</strong>&nbsp;packages' + (q ? ' matching <strong>"' + esc(q) + '"</strong>' : '');
-  } catch(e) {
-    document.getElementById('grid').innerHTML = '<div class="empty">Failed to load packages. Check the registry is running.</div>';
+    const { results } = await env.DB.prepare(
+      `SELECT id, name, description, status, created_at, updated_at FROM hives WHERE owner=? ORDER BY updated_at DESC`
+    ).bind(owner).all();
+    return json({ success: true, hives: results || [], count: (results || []).length });
+  } catch (e: any) { return err('Database error: ' + e.message, 500); }
+}
+
+async function handleHiveCreate(request: Request, env: Env): Promise<Response> {
+  if (!await checkRateLimit(request, 'hive_write', env)) {
+    return err('Rate limit exceeded: max 30 hive mutations per minute', 429);
+  }
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
+  let body: any;
+  try { body = await request.json(); } catch { return err('Invalid JSON'); }
+  const { name, description = '', config = {} } = body;
+  const status = ['draft','active','archived'].includes(body.status) ? body.status : 'draft';
+  if (!name || typeof name !== 'string') return err('name is required');
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) return err('name must be 1-64 alphanumeric/dash/underscore chars');
+  const id = crypto.randomUUID();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO hives (id, owner, name, description, config, status) VALUES (?,?,?,?,?,?)`
+    ).bind(id, owner, name, description, JSON.stringify(config), status).run();
+    return json({ success: true, id, name, owner }, 201);
+  } catch (e: any) {
+    if (e.message?.includes('UNIQUE')) return err('A hive named "' + name + '" already exists', 409);
+    return err('Database error: ' + e.message, 500);
   }
 }
 
-function render(pkgs) {
-  const grid = document.getElementById('grid');
-  if (!pkgs.length) { grid.innerHTML = '<div class="empty">No packages found.</div>'; return; }
-  grid.innerHTML = pkgs.map((p, i) =>
-    '<div class="card' + (p.featured ? ' featured' : '') + '" onclick="showDetail(' + i + ')">' +
-      (p.featured ? '<span class="featured-badge">★ Official</span>' : '') +
-      '<div class="card-name">' + esc(p.name) + '</div>' +
-      '<div class="card-desc">' + esc(p.description || 'No description') + '</div>' +
-      '<div class="card-footer">' +
-        (p.tags||[]).slice(0,3).map(t => '<span class="tag">' + esc(t) + '</span>').join('') +
-        '<span class="version-badge">v' + esc(p.version) + '</span>' +
-      '</div>' +
-    '</div>'
-  ).join('');
+async function handleHiveGet(request: Request, env: Env, id: string): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
+  try {
+    const row = await env.DB.prepare(
+      `SELECT * FROM hives WHERE id=? AND owner=?`
+    ).bind(id, owner).first() as any;
+    if (!row) return err('Hive not found', 404);
+    return json({ success: true, hive: { ...row, config: (() => { try { return JSON.parse(row.config); } catch { return {}; } })() } });
+  } catch (e: any) { return err('Database error: ' + e.message, 500); }
 }
 
-function showDetail(i) {
-  const p = allPackages[i];
-  document.getElementById('modal-name').textContent = p.name;
-  const tags = (p.tags||[]).map(t => '<span class="tag">' + esc(t) + '</span>').join('');
-  document.getElementById('modal-body').innerHTML =
-    '<div class="modal-desc">' + esc(p.description || 'No description provided.') + '</div>' +
-    (tags ? '<div class="section-label">Tags</div><div class="tags-row">' + tags + '</div>' : '') +
-    '<div class="section-label">Install</div>' +
-    '<div class="install-box">' +
-      '<span class="install-cmd">cerebrex install ' + esc(p.name) + '</span>' +
-      '<button class="copy-btn" onclick="copyInstall(\''+esc(p.name)+'\',this)">Copy</button>' +
-    '</div>' +
-    '<div class="section-label">Latest Version</div>' +
-    '<div class="versions-list">' +
-      '<div class="version-row"><span class="v">v' + esc(p.version) + '</span><span class="date">' + fmtDate(p.published_at) + '</span></div>' +
-    '</div>' +
-    '<div style="margin-top:16px;font-size:12px;color:var(--muted)">Published by <a href="/u/'+esc(p.author||'')+'" style="color:var(--cyan);text-decoration:none">'+esc(p.author||'unknown')+'</a> · ' + fmtSize(p.tarball_size) + (p.deprecated ? ' · <span style="color:var(--red)">⚠ Deprecated</span>' : '') + '</div>';
-  document.getElementById('overlay').classList.add('show');
+async function handleHiveUpdate(request: Request, env: Env, id: string): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
+  let body: any;
+  try { body = await request.json(); } catch { return err('Invalid JSON'); }
+  const existing = await env.DB.prepare(`SELECT id FROM hives WHERE id=? AND owner=?`).bind(id, owner).first();
+  if (!existing) return err('Hive not found', 404);
+  const sets: string[] = [`updated_at=datetime('now')`];
+  const params: any[] = [];
+  if (body.description !== undefined) { sets.push('description=?'); params.push(String(body.description).slice(0, 512)); }
+  if (body.config !== undefined) { sets.push('config=?'); params.push(JSON.stringify(body.config)); }
+  if (body.status !== undefined) {
+    if (!['draft','active','archived'].includes(body.status)) return err('status must be draft, active, or archived');
+    sets.push('status=?'); params.push(body.status);
+  }
+  if (body.name !== undefined) {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(body.name)) return err('name must be 1-64 alphanumeric/dash/underscore chars');
+    sets.push('name=?'); params.push(body.name);
+  }
+  params.push(id, owner);
+  try {
+    await env.DB.prepare(`UPDATE hives SET ${sets.join(',')} WHERE id=? AND owner=?`).bind(...params).run();
+    return json({ success: true });
+  } catch (e: any) { return err('Database error: ' + e.message, 500); }
 }
 
-function closeModal(e) { if (e.target === document.getElementById('overlay')) document.getElementById('overlay').classList.remove('show'); }
-
-function copyInstall(name, btn) {
-  navigator.clipboard.writeText('cerebrex install ' + name).then(() => {
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 1500);
-  });
+async function handleHiveDelete(request: Request, env: Env, id: string): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
+  try {
+    const result = await env.DB.prepare(`DELETE FROM hives WHERE id=? AND owner=?`).bind(id, owner).run();
+    if ((result.meta as any)?.changes === 0) return err('Hive not found', 404);
+    return json({ success: true });
+  } catch (e: any) { return err('Database error: ' + e.message, 500); }
 }
 
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function fmtDate(iso) { try { return new Date(iso).toLocaleDateString(); } catch { return iso||''; } }
-function fmtSize(b) { if(!b) return ''; return b < 1024 ? b+'B' : b < 1048576 ? (b/1024).toFixed(1)+'KB' : (b/1048576).toFixed(1)+'MB'; }
+// ── MEMEX Handlers ────────────────────────────────────────────────────────────
 
-document.getElementById('search').addEventListener('input', e => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => load(e.target.value.trim()), 300);
-});
+async function handleMemexStore(request: Request, env: Env): Promise<Response> {
+  if (!await checkRateLimit(request, 'memex_write', env)) {
+    return err('Rate limit exceeded: max 120 memory writes per minute', 429);
+  }
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('overlay').classList.remove('show'); });
+  let body: any;
+  try { body = await request.json(); } catch { return err('Invalid JSON body'); }
 
-load();
-</script>
-</body>
-</html>`;
+  const { key, value, agent_id = 'default', namespace = 'default', type = 'episodic', ttl_seconds, tags = [] } = body;
+  if (!key || typeof key !== 'string') return err('key is required');
+  if (value === undefined) return err('value is required');
+  if (key.length > 512) return err('key exceeds 512 characters');
+
+  const checksum = await hashToken(JSON.stringify(value));
+  const expiresAt = ttl_seconds ? new Date(Date.now() + ttl_seconds * 1000).toISOString() : null;
+  const id = crypto.randomUUID();
+  const valueStr = JSON.stringify(value);
+  const tagsStr = JSON.stringify(Array.isArray(tags) ? tags : []);
+
+  try {
+    const existing = await env.DB.prepare(
+      `SELECT id FROM memories WHERE owner=? AND agent_id=? AND namespace=? AND key=?`
+    ).bind(owner, agent_id, namespace, key).first();
+
+    if (existing) {
+      await env.DB.prepare(
+        `UPDATE memories SET value=?, type=?, checksum=?, tags=?, expires_at=?, updated_at=datetime('now') WHERE owner=? AND agent_id=? AND namespace=? AND key=?`
+      ).bind(valueStr, type, checksum, tagsStr, expiresAt, owner, agent_id, namespace, key).run();
+      return json({ success: true, id: (existing as any).id, created: false });
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO memories (id, owner, agent_id, namespace, key, value, type, checksum, tags, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)`
+      ).bind(id, owner, agent_id, namespace, key, valueStr, type, checksum, tagsStr, expiresAt).run();
+      return json({ success: true, id, created: true });
+    }
+  } catch (e: any) {
+    return err('Database error: ' + e.message, 500);
+  }
 }
 
-// ── Web UI — Trace Explorer ───────────────────────────────────────────────────
+async function handleMemexRecall(request: Request, env: Env): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
 
-function traceUI(): string {
-  return `<!DOCTYPE html>
+  const { searchParams } = new URL(request.url);
+  const agent_id = searchParams.get('agent_id') || null;
+  const namespace = searchParams.get('namespace') || null;
+  const type = searchParams.get('type') || null;
+  const q = searchParams.get('q') || null;
+  const limit = Math.min(parseInt(searchParams.get('limit') || '100'), 500);
+
+  let sql = `SELECT id, agent_id, namespace, key, value, type, tags, expires_at, created_at, updated_at FROM memories WHERE owner=?`;
+  const params: any[] = [owner];
+
+  if (agent_id) { sql += ` AND agent_id=?`; params.push(agent_id); }
+  if (namespace) { sql += ` AND namespace=?`; params.push(namespace); }
+  if (type) { sql += ` AND type=?`; params.push(type); }
+  if (q) { sql += ` AND key LIKE ?`; params.push('%' + q + '%'); }
+  sql += ` AND (expires_at IS NULL OR expires_at > datetime('now'))`;
+  sql += ` ORDER BY updated_at DESC LIMIT ?`;
+  params.push(limit);
+
+  try {
+    const { results } = await env.DB.prepare(sql).bind(...params).all();
+    const memories = (results || []).map((r: any) => ({
+      ...r,
+      value: (() => { try { return JSON.parse(r.value); } catch { return r.value; } })(),
+      tags: (() => { try { return JSON.parse(r.tags || '[]'); } catch { return []; } })(),
+    }));
+    return json({ success: true, memories, count: memories.length });
+  } catch (e: any) {
+    return err('Database error: ' + e.message, 500);
+  }
+}
+
+async function handleMemexForget(request: Request, env: Env, id: string): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
+
+  try {
+    const result = await env.DB.prepare(
+      `DELETE FROM memories WHERE id=? AND owner=?`
+    ).bind(id, owner).run();
+    if ((result.meta as any)?.changes === 0) return err('Memory not found or not owned by you', 404);
+    return json({ success: true });
+  } catch (e: any) {
+    return err('Database error: ' + e.message, 500);
+  }
+}
+
+async function handleMemexNamespaces(request: Request, env: Env): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authentication required', 401);
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
+
+  const { searchParams } = new URL(request.url);
+  const agent_id = searchParams.get('agent_id') || null;
+
+  let sql = `SELECT DISTINCT namespace, agent_id FROM memories WHERE owner=? AND (expires_at IS NULL OR expires_at > datetime('now'))`;
+  const params: any[] = [owner];
+  if (agent_id) { sql += ` AND agent_id=?`; params.push(agent_id); }
+  sql += ` ORDER BY agent_id, namespace`;
+
+  try {
+    const { results } = await env.DB.prepare(sql).bind(...params).all();
+    return json({ success: true, namespaces: results || [] });
+  } catch (e: any) {
+    return err('Database error: ' + e.message, 500);
+  }
+}
+
+// ── Web UI — Registry Browser ─────────────────────────────────────────────────
+
+// traceUI removed — integrated into registryUI
+
+async function registryUI(env: Env): Promise<string> {
+  // Server-side render initial packages
+  let initialPackages: any[] = [];
+  let initialCount = 0;
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT name, version, description, author, tags, tarball_size, published_at, download_count, deprecated, featured
+       FROM packages ORDER BY featured DESC, published_at DESC LIMIT 100`
+    ).all();
+    initialPackages = (results || []).map((r: any) => ({
+      ...r,
+      tags: (() => { try { return JSON.parse(r.tags || '[]'); } catch { return []; } })(),
+    }));
+    initialCount = initialPackages.length;
+  } catch (e) {
+    initialPackages = [];
+  }
+
+  const page = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>CerebreX — Trace Explorer</title>
+  <title>CerebreX — agent infrastructure os</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{
-      --bg:#0d0d0f;--surface:#16161a;--border:#2a2a30;
-      --text:#e8e8f0;--muted:#6b6b80;
-      --cyan:#00c8e0;--green:#22d3a0;--yellow:#f5a623;--red:#f56060;--purple:#a560f5;
+    html{scroll-behavior:smooth}
+    body{
+      font-family:'JetBrains Mono',monospace;
+      background:#000;
+      color:#fff;
+      min-height:100vh;
+      overflow-x:hidden;
     }
-    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
-    header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:16px}
-    .logo{font-size:18px;font-weight:700;color:var(--cyan);letter-spacing:-0.5px}
-    .logo span{color:var(--muted);font-weight:400}
-    .header-right{margin-left:auto;display:flex;align-items:center;gap:12px}
-    .header-right a{color:var(--muted);text-decoration:none;font-size:13px}
-    .header-right a:hover{color:var(--text)}
-    .app{display:flex;flex:1;overflow:hidden;height:calc(100vh - 53px)}
-    .sidebar{width:280px;min-width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-    .sidebar-header{padding:12px 16px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
-    .session-list{flex:1;overflow-y:auto;padding:8px}
-    .session-item{padding:10px 12px;border-radius:6px;cursor:pointer;border:1px solid transparent;margin-bottom:2px;transition:background .1s}
-    .session-item:hover{background:rgba(255,255,255,.05)}
-    .session-item.active{background:rgba(0,200,224,.08);border-color:var(--cyan)}
-    .session-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .session-meta{font-size:11px;color:var(--muted);margin-top:3px}
-    .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-    .drop-zone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;border:2px dashed var(--border);margin:32px;border-radius:16px;cursor:pointer;transition:border-color .15s}
-    .drop-zone:hover,.drop-zone.drag{border-color:var(--cyan)}
-    .drop-zone .icon{font-size:48px}
-    .drop-zone h2{font-size:18px;font-weight:600}
-    .drop-zone p{color:var(--muted);font-size:14px;text-align:center}
-    .btn{padding:8px 18px;border-radius:6px;font-size:13px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;transition:background .1s;font-family:inherit}
-    .btn:hover{background:rgba(255,255,255,.06)}
-    .btn-primary{background:var(--cyan);color:var(--bg);border-color:var(--cyan)}
-    .btn-primary:hover{background:#00b0c8}
-    .trace-header{padding:16px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-    .trace-title{font-size:16px;font-weight:600}
-    .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600}
-    .badge-green{background:rgba(34,211,160,.15);color:var(--green)}
-    .badge-yellow{background:rgba(245,166,35,.15);color:var(--yellow)}
-    .stats-row{display:flex;gap:24px;margin-left:auto}
-    .stat{text-align:right}
-    .stat-value{font-size:15px;font-weight:600;color:var(--cyan)}
-    .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-    .timeline{flex:1;overflow-y:auto;padding:16px 24px}
-    .step{display:flex;gap:16px;margin-bottom:8px;position:relative}
-    .step::before{content:'';position:absolute;left:19px;top:36px;bottom:-8px;width:2px;background:var(--border)}
-    .step:last-child::before{display:none}
-    .step-icon{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;border:2px solid transparent}
-    .step-body{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px;cursor:pointer;transition:border-color .1s}
-    .step-body:hover{border-color:var(--muted)}
-    .step-body.expanded{border-color:var(--cyan)}
-    .step-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-    .step-type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:2px 6px;border-radius:4px}
-    .step-name{font-size:13px;font-weight:500}
-    .step-meta{margin-left:auto;display:flex;gap:12px;align-items:center}
-    .step-meta span{font-size:11px;color:var(--muted)}
-    .step-details{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
-    .step-details.show{display:block}
-    .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .detail-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px}
-    .detail-value{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto}
-    .type-tool_call{background:rgba(0,200,224,.12);color:var(--cyan)}
-    .icon-tool_call{background:rgba(0,200,224,.12);border-color:var(--cyan)}
-    .type-llm_call{background:rgba(160,96,245,.12);color:var(--purple)}
-    .icon-llm_call{background:rgba(160,96,245,.12);border-color:var(--purple)}
-    .type-memory_read,.type-memory_write{background:rgba(34,211,160,.12);color:var(--green)}
-    .icon-memory_read,.icon-memory_write{background:rgba(34,211,160,.12);border-color:var(--green)}
-    .type-error{background:rgba(245,96,96,.12);color:var(--red)}
-    .icon-error{background:rgba(245,96,96,.12);border-color:var(--red)}
-    .type-custom{background:rgba(245,166,35,.12);color:var(--yellow)}
-    .icon-custom{background:rgba(245,166,35,.12);border-color:var(--yellow)}
-    ::-webkit-scrollbar{width:6px;height:6px}
+    body::before{
+      content:'';
+      position:fixed;
+      top:0;left:0;width:100%;height:100%;
+      background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(255,255,255,0.008) 3px,rgba(255,255,255,0.008) 4px);
+      pointer-events:none;
+      z-index:900;
+    }
+
+    /* Scroll progress */
+    #scroll-bar{
+      position:fixed;top:0;left:0;height:2px;
+      background:#fff;width:0%;
+      z-index:1000;transition:width .05s linear;
+    }
+
+    /* NAV */
+    nav{
+      position:fixed;top:0;left:0;right:0;
+      display:flex;align-items:center;
+      padding:0 32px;
+      height:48px;
+      border-bottom:1px solid rgba(255,255,255,0.1);
+      background:#000;
+      z-index:800;
+    }
+    .nav-logo{
+      font-size:14px;font-weight:700;letter-spacing:0.05em;
+      color:#fff;text-decoration:none;
+      margin-right:auto;
+    }
+    .nav-links{
+      display:flex;gap:0;align-items:center;
+    }
+    .nav-links a{
+      color:rgba(255,255,255,0.5);
+      text-decoration:none;
+      font-size:11px;
+      padding:0 14px;
+      height:48px;
+      display:flex;align-items:center;
+      border-left:1px solid rgba(255,255,255,0.1);
+      transition:color .1s,background .1s;
+      letter-spacing:0.03em;
+    }
+    .nav-links a:hover{color:#fff;background:rgba(255,255,255,0.05)}
+    .nav-links a:last-child{border-right:1px solid rgba(255,255,255,0.1)}
+    .nav-gh{
+      margin-left:24px;
+      color:rgba(255,255,255,0.5) !important;
+      border:1px solid rgba(255,255,255,0.2) !important;
+      padding:0 14px !important;
+      font-size:11px !important;
+    }
+    .nav-gh:hover{color:#fff !important;border-color:#fff !important;background:transparent !important}
+
+    /* HERO */
+    .hero{
+      padding:112px 32px 80px;
+      text-align:center;
+      border-bottom:1px solid rgba(255,255,255,0.1);
+    }
+    .hero-ascii{
+      font-size:clamp(8px,1.4vw,13px);
+      line-height:1.2;
+      color:rgba(255,255,255,0.9);
+      white-space:pre;
+      display:inline-block;
+      margin-bottom:32px;
+      font-weight:400;
+    }
+    .hero-sub{
+      font-size:12px;
+      color:rgba(255,255,255,0.4);
+      letter-spacing:0.3em;
+      text-transform:uppercase;
+      margin-bottom:48px;
+    }
+    .hero-pills{
+      display:flex;justify-content:center;gap:8px;flex-wrap:wrap;
+    }
+    .hero-pill{
+      font-size:10px;
+      letter-spacing:0.1em;
+      padding:6px 14px;
+      border:1px solid rgba(255,255,255,0.2);
+      color:rgba(255,255,255,0.5);
+      text-decoration:none;
+      transition:color .1s,border-color .1s;
+    }
+    .hero-pill:hover{color:#fff;border-color:#fff}
+    .hero-pill.live{border-color:rgba(255,255,255,0.6);color:rgba(255,255,255,0.8)}
+
+    /* SECTIONS */
+    .module-section{
+      padding:80px 32px;
+      border-bottom:1px solid rgba(255,255,255,0.1);
+      max-width:1100px;
+      margin:0 auto;
+    }
+    .module-header{
+      display:flex;align-items:baseline;gap:16px;
+      margin-bottom:40px;
+    }
+    .module-num{
+      font-size:11px;
+      color:rgba(255,255,255,0.3);
+      letter-spacing:0.1em;
+    }
+    .module-title{
+      font-size:20px;
+      font-weight:700;
+      letter-spacing:0.05em;
+    }
+    .module-badge{
+      font-size:9px;
+      letter-spacing:0.15em;
+      text-transform:uppercase;
+      padding:3px 8px;
+      border:1px solid #fff;
+      color:#fff;
+    }
+    .module-badge.dim{
+      border-color:rgba(255,255,255,0.25);
+      color:rgba(255,255,255,0.3);
+    }
+    .module-desc{
+      font-size:13px;
+      color:rgba(255,255,255,0.5);
+      margin-bottom:32px;
+      line-height:1.7;
+      max-width:600px;
+    }
+
+    /* INPUTS / BUTTONS */
+    input,select,textarea{
+      background:#000;
+      border:1px solid rgba(255,255,255,0.3);
+      color:#fff;
+      font-family:'JetBrains Mono',monospace;
+      font-size:12px;
+      padding:10px 14px;
+      outline:none;
+      transition:border-color .1s;
+      width:100%;
+    }
+    input:focus,select:focus,textarea:focus{border-color:#fff}
+    select option{background:#000;color:#fff}
+    button,.btn{
+      background:#000;
+      border:1px solid rgba(255,255,255,0.4);
+      color:rgba(255,255,255,0.8);
+      font-family:'JetBrains Mono',monospace;
+      font-size:11px;
+      letter-spacing:0.05em;
+      padding:10px 20px;
+      cursor:pointer;
+      transition:background .1s,color .1s,border-color .1s;
+      white-space:nowrap;
+    }
+    button:hover,.btn:hover{background:#fff;color:#000;border-color:#fff}
+    .btn-primary{border-color:#fff;color:#fff}
+    .btn-primary:hover{background:#fff;color:#000}
+
+    /* FEATURE LIST */
+    .feature-list{
+      display:flex;flex-direction:column;gap:8px;
+      margin-top:24px;
+    }
+    .feature-item{
+      font-size:11px;
+      color:rgba(255,255,255,0.4);
+      padding:10px 14px;
+      border:1px solid rgba(255,255,255,0.08);
+      display:flex;gap:12px;align-items:flex-start;
+    }
+    .feature-item::before{content:'//';color:rgba(255,255,255,0.2)}
+
+    /* FORGE SECTION */
+    .forge-form{
+      display:grid;
+      grid-template-columns:1fr 1fr auto;
+      gap:8px;
+      align-items:end;
+      max-width:680px;
+    }
+    .forge-output{
+      margin-top:16px;
+      background:#000;
+      border:1px solid rgba(255,255,255,0.15);
+      padding:14px 16px;
+      font-size:12px;
+      color:rgba(255,255,255,0.8);
+      display:none;
+    }
+    .forge-output.show{display:flex;align-items:center;gap:12px}
+    .forge-output code{flex:1;word-break:break-all}
+    .forge-output button{flex-shrink:0}
+
+    /* TRACE SECTION */
+    .trace-layout{
+      display:grid;
+      grid-template-columns:240px 1fr;
+      gap:0;
+      border:1px solid rgba(255,255,255,0.15);
+      min-height:460px;
+    }
+    .trace-sidebar{
+      border-right:1px solid rgba(255,255,255,0.1);
+      overflow:hidden;
+      display:flex;flex-direction:column;
+    }
+    .trace-sidebar-header{
+      padding:10px 14px;
+      font-size:10px;
+      letter-spacing:0.1em;
+      color:rgba(255,255,255,0.3);
+      border-bottom:1px solid rgba(255,255,255,0.1);
+      display:flex;justify-content:space-between;align-items:center;
+    }
+    .trace-session-list{flex:1;overflow-y:auto}
+    .trace-session-item{
+      padding:10px 14px;
+      cursor:pointer;
+      border-bottom:1px solid rgba(255,255,255,0.05);
+      transition:background .1s;
+    }
+    .trace-session-item:hover{background:rgba(255,255,255,0.05)}
+    .trace-session-item.active{background:rgba(255,255,255,0.08);border-left:2px solid #fff}
+    .trace-session-name{font-size:11px;color:rgba(255,255,255,0.8);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .trace-session-meta{font-size:10px;color:rgba(255,255,255,0.3);margin-top:3px}
+    .trace-main{display:flex;flex-direction:column;overflow:hidden}
+    .trace-drop{
+      flex:1;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:16px;padding:48px 24px;
+      border:1px dashed rgba(255,255,255,0.15);
+      margin:24px;
+      cursor:pointer;
+      transition:border-color .1s;
+    }
+    .trace-drop:hover,.trace-drop.drag{border-color:rgba(255,255,255,0.5)}
+    .trace-drop-title{font-size:13px;color:rgba(255,255,255,0.6)}
+    .trace-drop-sub{font-size:11px;color:rgba(255,255,255,0.25);text-align:center;line-height:1.6}
+    .trace-view-wrap{display:none;flex-direction:column;flex:1;overflow:hidden}
+    .trace-view-header{
+      padding:12px 16px;
+      border-bottom:1px solid rgba(255,255,255,0.1);
+      display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+      font-size:12px;
+    }
+    .trace-view-title{font-weight:700;color:#fff}
+    .trace-badge{
+      font-size:9px;letter-spacing:0.1em;padding:2px 7px;
+      border:1px solid rgba(255,255,255,0.4);color:rgba(255,255,255,0.5);
+    }
+    .trace-stats{margin-left:auto;display:flex;gap:20px}
+    .trace-stat{text-align:right}
+    .trace-stat-val{font-size:13px;color:#fff}
+    .trace-stat-lbl{font-size:9px;color:rgba(255,255,255,0.3);letter-spacing:0.1em}
+    .trace-timeline{flex:1;overflow-y:auto;padding:16px}
+    .trace-step{display:flex;gap:12px;margin-bottom:6px;position:relative}
+    .trace-step::before{content:'';position:absolute;left:15px;top:32px;bottom:-6px;width:1px;background:rgba(255,255,255,0.1)}
+    .trace-step:last-child::before{display:none}
+    .trace-step-dot{
+      width:30px;height:30px;flex-shrink:0;
+      border:1px solid rgba(255,255,255,0.2);
+      display:flex;align-items:center;justify-content:center;
+      font-size:11px;color:rgba(255,255,255,0.5);
+    }
+    .trace-step-dot.type-tool_call{border-color:rgba(255,255,255,0.6);color:#fff}
+    .trace-step-dot.type-llm_call{border-color:rgba(255,255,255,0.4);color:rgba(255,255,255,0.7)}
+    .trace-step-dot.type-error{border-color:rgba(255,255,255,0.8);color:#fff}
+    .trace-step-body{
+      flex:1;
+      border:1px solid rgba(255,255,255,0.1);
+      padding:10px 14px;
+      cursor:pointer;
+      transition:border-color .1s;
+    }
+    .trace-step-body:hover{border-color:rgba(255,255,255,0.3)}
+    .trace-step-body.expanded{border-color:rgba(255,255,255,0.6)}
+    .trace-step-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .trace-step-type{
+      font-size:9px;letter-spacing:0.1em;text-transform:uppercase;
+      padding:2px 6px;border:1px solid rgba(255,255,255,0.2);
+      color:rgba(255,255,255,0.4);
+    }
+    .trace-step-type.type-tool_call{border-color:rgba(255,255,255,0.5);color:rgba(255,255,255,0.8)}
+    .trace-step-type.type-error{border-color:#fff;color:#fff}
+    .trace-step-name{font-size:12px;color:rgba(255,255,255,0.9)}
+    .trace-step-ms{margin-left:auto;font-size:10px;color:rgba(255,255,255,0.3)}
+    .trace-step-details{display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.08)}
+    .trace-step-details.show{display:block}
+    .trace-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .trace-detail-lbl{font-size:9px;letter-spacing:0.1em;color:rgba(255,255,255,0.3);margin-bottom:6px;text-transform:uppercase}
+    .trace-detail-val{
+      background:#000;border:1px solid rgba(255,255,255,0.1);
+      padding:8px 10px;font-size:11px;
+      white-space:pre-wrap;word-break:break-all;
+      max-height:180px;overflow-y:auto;
+      color:rgba(255,255,255,0.7);
+    }
+
+    /* COMING SOON */
+    .coming-soon{
+      padding:40px;
+      border:1px solid rgba(255,255,255,0.1);
+      max-width:560px;
+    }
+    .coming-soon-label{
+      font-size:10px;letter-spacing:0.2em;
+      color:rgba(255,255,255,0.3);
+      text-transform:uppercase;margin-bottom:16px;
+    }
+    .coming-soon-text{
+      font-size:13px;color:rgba(255,255,255,0.5);
+      line-height:1.7;margin-bottom:24px;
+    }
+    .notify-form{display:flex;gap:8px}
+    .notify-form input{flex:1}
+    .notify-msg{margin-top:10px;font-size:11px;color:rgba(255,255,255,0.4);display:none}
+
+    /* AUTH SECTION */
+    .auth-login{max-width:480px}
+    .auth-login-row{display:flex;gap:8px;margin-bottom:8px}
+    .auth-login-row input{flex:1}
+    .auth-hint{font-size:10px;color:rgba(255,255,255,0.3);margin-top:8px;line-height:1.6}
+    .auth-panel{display:none}
+    .auth-panel.show{display:block}
+    .auth-user-row{
+      display:flex;align-items:center;gap:16px;
+      padding:12px 16px;
+      border:1px solid rgba(255,255,255,0.15);
+      margin-bottom:24px;
+      font-size:12px;
+    }
+    .auth-user-name{color:#fff;font-weight:700}
+    .auth-user-lbl{color:rgba(255,255,255,0.4);font-size:10px}
+    .auth-section-title{
+      font-size:10px;letter-spacing:0.15em;text-transform:uppercase;
+      color:rgba(255,255,255,0.3);margin-bottom:16px;padding-bottom:8px;
+      border-bottom:1px solid rgba(255,255,255,0.08);
+    }
+    .token-create-form{
+      display:grid;grid-template-columns:1fr auto;gap:8px;
+      margin-bottom:16px;max-width:480px;
+    }
+    .scope-checks{
+      display:flex;gap:16px;flex-wrap:wrap;
+      margin-bottom:16px;
+    }
+    .scope-check{
+      display:flex;align-items:center;gap:6px;
+      font-size:11px;color:rgba(255,255,255,0.6);cursor:pointer;
+    }
+    .scope-check input[type=checkbox]{
+      width:14px;height:14px;cursor:pointer;
+      accent-color:#fff;
+    }
+    .token-list{display:flex;flex-direction:column;gap:6px;margin-top:16px}
+    .token-row{
+      display:flex;align-items:center;gap:12px;
+      padding:10px 14px;
+      border:1px solid rgba(255,255,255,0.1);
+      font-size:11px;
+    }
+    .token-name{flex:1;color:rgba(255,255,255,0.8)}
+    .token-scope{font-size:10px;color:rgba(255,255,255,0.3)}
+    .token-copy-cmd{
+      font-size:10px;color:rgba(255,255,255,0.3);
+      border:1px solid rgba(255,255,255,0.1);
+      padding:3px 8px;cursor:pointer;
+      transition:border-color .1s,color .1s;background:#000;
+      font-family:'JetBrains Mono',monospace;
+    }
+    .token-copy-cmd:hover{border-color:rgba(255,255,255,0.4);color:rgba(255,255,255,0.7)}
+
+    /* REGISTRY SECTION */
+    .reg-search{margin-bottom:20px}
+    .reg-stats{
+      font-size:11px;color:rgba(255,255,255,0.3);
+      margin-bottom:20px;
+      padding-bottom:12px;
+      border-bottom:1px solid rgba(255,255,255,0.08);
+    }
+    .reg-stats strong{color:rgba(255,255,255,0.7)}
+    .pkg-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+      gap:1px;
+      background:rgba(255,255,255,0.08);
+    }
+    .pkg-card{
+      background:#000;
+      padding:20px;
+      cursor:pointer;
+      transition:background .1s;
+      position:relative;
+    }
+    .pkg-card:hover{background:rgba(255,255,255,0.04)}
+    .pkg-card.featured{border-top:2px solid rgba(255,255,255,0.6)}
+    .pkg-official{
+      position:absolute;top:14px;right:14px;
+      font-size:9px;letter-spacing:0.1em;
+      color:rgba(255,255,255,0.5);
+    }
+    .pkg-name{
+      font-size:13px;font-weight:700;color:#fff;
+      margin-bottom:6px;
+    }
+    .pkg-desc{
+      font-size:11px;color:rgba(255,255,255,0.4);
+      margin-bottom:14px;line-height:1.6;
+      min-height:36px;
+    }
+    .pkg-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    .pkg-tag{
+      font-size:9px;letter-spacing:0.05em;
+      padding:2px 7px;
+      border:1px solid rgba(255,255,255,0.15);
+      color:rgba(255,255,255,0.4);
+    }
+    .pkg-ver{
+      margin-left:auto;font-size:10px;
+      color:rgba(255,255,255,0.25);
+    }
+    .pkg-empty{
+      padding:48px 24px;text-align:center;
+      font-size:12px;color:rgba(255,255,255,0.3);
+    }
+    .pkg-empty code{color:rgba(255,255,255,0.5)}
+
+    /* PKG MODAL */
+    .pkg-overlay{
+      display:none;position:fixed;inset:0;
+      background:rgba(0,0,0,0.85);z-index:950;
+      align-items:center;justify-content:center;padding:24px;
+    }
+    .pkg-overlay.show{display:flex}
+    .pkg-modal{
+      background:#000;border:1px solid rgba(255,255,255,0.25);
+      width:100%;max-width:580px;max-height:88vh;overflow-y:auto;
+    }
+    .pkg-modal-header{
+      padding:18px 20px;
+      border-bottom:1px solid rgba(255,255,255,0.1);
+      display:flex;align-items:center;gap:12px;
+    }
+    .pkg-modal-name{font-size:16px;font-weight:700;color:#fff}
+    .pkg-modal-close{
+      margin-left:auto;background:none;border:none;
+      color:rgba(255,255,255,0.4);font-size:20px;
+      cursor:pointer;line-height:1;font-family:'JetBrains Mono',monospace;
+      padding:0 4px;
+    }
+    .pkg-modal-close:hover{color:#fff;background:none}
+    .pkg-modal-body{padding:20px}
+    .pkg-modal-desc{font-size:12px;color:rgba(255,255,255,0.5);line-height:1.7;margin-bottom:20px}
+    .pkg-detail-label{
+      font-size:9px;letter-spacing:0.15em;text-transform:uppercase;
+      color:rgba(255,255,255,0.3);margin-bottom:8px;
+    }
+    .pkg-install-box{
+      display:flex;align-items:center;gap:10px;
+      background:#000;border:1px solid rgba(255,255,255,0.2);
+      padding:12px 14px;margin-bottom:20px;
+      font-size:12px;
+    }
+    .pkg-install-cmd{flex:1;word-break:break-all;color:rgba(255,255,255,0.8)}
+    .pkg-tags-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px}
+    .pkg-meta-row{font-size:11px;color:rgba(255,255,255,0.3);line-height:1.8}
+    .pkg-meta-row a{color:rgba(255,255,255,0.5);text-decoration:none}
+    .pkg-meta-row a:hover{color:#fff}
+
+    /* FOOTER */
+    footer{
+      padding:40px 32px;
+      border-top:1px solid rgba(255,255,255,0.08);
+      text-align:center;
+      font-size:11px;
+      color:rgba(255,255,255,0.2);
+      letter-spacing:0.05em;
+    }
+    footer a{color:rgba(255,255,255,0.3);text-decoration:none}
+    footer a:hover{color:#fff}
+
+    /* SCROLLBAR */
+    ::-webkit-scrollbar{width:4px;height:4px}
     ::-webkit-scrollbar-track{background:transparent}
-    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15)}
+
+    @media(max-width:700px){
+      nav{padding:0 16px}
+      .nav-links a{padding:0 8px;font-size:10px}
+      .module-section{padding:56px 16px}
+      .forge-form{grid-template-columns:1fr}
+      .trace-layout{grid-template-columns:1fr}
+      .trace-sidebar{border-right:none;border-bottom:1px solid rgba(255,255,255,0.1);max-height:200px}
+      .trace-detail-grid{grid-template-columns:1fr}
+    }
   </style>
 </head>
 <body>
-<header>
-  <div class="logo">CerebreX <span>Trace Explorer</span></div>
-  <div class="header-right">
-    <a href="/ui">Registry</a>
-    <label class="btn" for="file-input" style="cursor:pointer">Load Trace</label>
-    <input type="file" id="file-input" accept=".json" multiple style="display:none"/>
+
+<div id="scroll-bar"></div>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-logo" href="/">cerebrex</a>
+  <div class="nav-links">
+    <a href="#forge">[forge]</a>
+    <a href="#trace">[trace]</a>
+    <a href="#memex">[memex]</a>
+    <a href="#auth">[auth]</a>
+    <a href="#registry">[registry]</a>
+    <a href="#hive">[hive]</a>
+    <a href="https://github.com/arealcoolco/CerebreX" target="_blank" class="nav-gh">[github]</a>
   </div>
-</header>
-<div class="app">
-  <div class="sidebar">
-    <div class="sidebar-header">
-      <span>Sessions</span>
-      <span id="session-count" style="color:var(--cyan)">0</span>
-    </div>
-    <div class="session-list" id="session-list"></div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <pre class="hero-ascii">
+  ██████╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗  ██╗
+ ██╔════╝██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗██╔╝
+ ██║     █████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚███╔╝
+ ██║     ██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗ ██╔██╗
+ ╚██████╗███████╗██║  ██║███████╗██████╔╝██║  ██║██╔╝ ██╗
+  ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝</pre>
+  <div class="hero-sub">the agent infrastructure os</div>
+  <div class="hero-pills">
+    <a class="hero-pill live" href="#forge">forge</a>
+    <a class="hero-pill live" href="#trace">trace</a>
+    <a class="hero-pill" href="#memex">memex</a>
+    <a class="hero-pill live" href="#auth">auth</a>
+    <a class="hero-pill live" href="#registry">registry</a>
+    <a class="hero-pill" href="#hive">hive</a>
   </div>
-  <div class="main" id="main-area">
-    <div class="drop-zone" id="drop-zone">
-      <div class="icon">🔍</div>
-      <h2>Drop a trace file here</h2>
-      <p>or click to browse for a JSON trace file<br>exported with <code style="color:var(--cyan)">cerebrex trace view --session &lt;id&gt;</code></p>
-      <label class="btn btn-primary" for="file-input">Browse Files</label>
+</section>
+
+<!-- 01 FORGE -->
+<section id="forge" style="border-bottom:1px solid rgba(255,255,255,0.1)">
+<div class="module-section" style="max-width:1100px;margin:0 auto;padding:80px 32px">
+  <div class="module-header">
+    <span class="module-num">01</span>
+    <span class="module-title">FORGE</span>
+    <span class="module-badge">live</span>
+  </div>
+  <div class="module-desc">scaffold a new MCP server from battle-tested templates. one command, production-ready skeleton.</div>
+  <div class="forge-form">
+    <div>
+      <div style="font-size:10px;letter-spacing:0.1em;color:rgba(255,255,255,0.3);margin-bottom:6px">TOOL NAME</div>
+      <input type="text" id="forge-name" placeholder="my-mcp-server" autocomplete="off"/>
     </div>
-    <div id="trace-view" style="display:none;flex-direction:column;flex:1;overflow:hidden">
-      <div class="trace-header" id="trace-header"></div>
-      <div class="timeline" id="timeline"></div>
+    <div>
+      <div style="font-size:10px;letter-spacing:0.1em;color:rgba(255,255,255,0.3);margin-bottom:6px">TEMPLATE</div>
+      <select id="forge-template">
+        <option value="rest-api">rest-api</option>
+        <option value="database">database</option>
+        <option value="filesystem">filesystem</option>
+        <option value="custom">custom</option>
+      </select>
+    </div>
+    <div style="align-self:flex-end">
+      <button onclick="generateForgeCmd()">generate command</button>
+    </div>
+  </div>
+  <div class="forge-output" id="forge-output">
+    <code id="forge-cmd-text"></code>
+    <button onclick="copyForge(this)">copy</button>
+  </div>
+  <div class="feature-list">
+    <div class="feature-item">zero-config TypeScript setup with strict mode and path aliases</div>
+    <div class="feature-item">wrangler.toml pre-configured for Cloudflare Workers deployment</div>
+    <div class="feature-item">MCP protocol handler boilerplate with tool, resource, and prompt stubs</div>
+    <div class="feature-item">integrated test runner with example tool call fixtures</div>
+    <div class="feature-item">one-command publish to cerebrex registry on first push</div>
+  </div>
+</div>
+</section>
+
+<!-- 02 TRACE -->
+<section id="trace" style="border-bottom:1px solid rgba(255,255,255,0.1)">
+<div class="module-section" style="max-width:1100px;margin:0 auto;padding:80px 32px">
+  <div class="module-header">
+    <span class="module-num">02</span>
+    <span class="module-title">TRACE</span>
+    <span class="module-badge">live</span>
+  </div>
+  <div class="module-desc">real-time MCP call inspector. load a session JSON and walk through every tool call, LLM round-trip, and error step.</div>
+
+  <div class="trace-layout">
+    <!-- sidebar -->
+    <div class="trace-sidebar">
+      <div class="trace-sidebar-header">
+        <span>SESSIONS</span>
+        <span id="trace-session-count">0</span>
+      </div>
+      <div class="trace-session-list" id="trace-session-list"></div>
+    </div>
+    <!-- main -->
+    <div class="trace-main" id="trace-main">
+      <div class="trace-drop" id="trace-drop-zone">
+        <div class="trace-drop-title">drop a trace file here</div>
+        <div class="trace-drop-sub">or click to browse for a JSON trace file<br>exported with <code>cerebrex trace view --session &lt;id&gt;</code></div>
+        <label class="btn btn-primary" for="trace-file-input" style="cursor:pointer;display:inline-block">browse files</label>
+        <input type="file" id="trace-file-input" accept=".json" multiple style="display:none"/>
+      </div>
+      <div class="trace-view-wrap" id="trace-view-wrap">
+        <div class="trace-view-header" id="trace-view-header"></div>
+        <div class="trace-timeline" id="trace-timeline"></div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+    <label class="btn" for="trace-file-input" style="cursor:pointer;display:inline-block;font-size:10px">load trace file</label>
+    <span style="font-size:10px;color:rgba(255,255,255,0.2)">or drag a .json trace onto the panel above</span>
+  </div>
+</div>
+</section>
+
+<!-- 03 MEMEX -->
+<section id="memex" style="border-bottom:1px solid rgba(255,255,255,0.1)">
+<div class="module-section" style="max-width:1100px;margin:0 auto;padding:80px 32px">
+  <div class="module-header">
+    <span class="module-num">03</span>
+    <span class="module-title">MEMEX</span>
+    <span class="module-badge live">live</span>
+  </div>
+  <div class="module-desc">persistent cloud memory for agents. store, recall, and forget key-value memories across sessions, namespaces, and agent identities.</div>
+
+  <!-- install -->
+  <div style="margin:2rem 0 2.5rem">
+    <div style="font-size:0.65rem;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:0.5rem">install the memex mcp server</div>
+    <div style="display:flex;gap:0;border:1px solid rgba(255,255,255,0.2)">
+      <code style="flex:1;padding:0.75rem 1rem;font-size:0.85rem;color:rgba(255,255,255,0.8)">cerebrex install @arealcoolco/memex-mcp</code>
+      <button onclick="navigator.clipboard.writeText('cerebrex install @arealcoolco/memex-mcp').then(()=>{this.textContent='copied';setTimeout(()=>this.textContent='copy',1500)})" style="padding:0.75rem 1.25rem;background:rgba(255,255,255,0.08);border:none;border-left:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.6);font-family:inherit;font-size:0.75rem;cursor:pointer;letter-spacing:0.1em">copy</button>
+    </div>
+  </div>
+
+  <!-- auth gate -->
+  <div id="memex-auth-gate" style="display:none;padding:2rem;border:1px solid rgba(255,255,255,0.15);text-align:center">
+    <div style="font-size:0.8rem;color:rgba(255,255,255,0.5);margin-bottom:1rem">sign in via the AUTH section above to use the memory browser</div>
+    <a href="#auth" style="color:#fff;font-size:0.75rem;letter-spacing:0.1em;text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.4)">→ go to auth</a>
+  </div>
+
+  <!-- memory browser -->
+  <div id="memex-browser" style="display:none">
+    <!-- controls bar -->
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1.5rem;align-items:flex-end">
+      <div style="flex:1;min-width:160px">
+        <div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:0.4rem">agent id</div>
+        <input id="mx-agent" placeholder="default" style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem" oninput="memexLoad()"/>
+      </div>
+      <div style="flex:1;min-width:140px">
+        <div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:0.4rem">namespace</div>
+        <input id="mx-ns" placeholder="default" style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem" oninput="memexLoad()"/>
+      </div>
+      <div style="flex:2;min-width:180px">
+        <div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:0.4rem">search key</div>
+        <input id="mx-q" placeholder="filter by key..." style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem" oninput="memexLoad()"/>
+      </div>
+      <button onclick="memexLoad()" style="padding:0.5rem 1.25rem;background:#fff;color:#000;border:none;font-family:inherit;font-size:0.75rem;font-weight:700;letter-spacing:0.1em;cursor:pointer;white-space:nowrap">refresh</button>
+    </div>
+
+    <!-- memory list -->
+    <div id="mx-list" style="border:1px solid rgba(255,255,255,0.1)">
+      <div style="padding:2rem;text-align:center;color:rgba(255,255,255,0.35);font-size:0.8rem">loading memories...</div>
+    </div>
+
+    <!-- store form -->
+    <div style="margin-top:2.5rem;border-top:1px solid rgba(255,255,255,0.1);padding-top:2rem">
+      <div style="font-size:0.65rem;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:1.25rem">store new memory</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem">
+        <div>
+          <div style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-bottom:0.3rem">key *</div>
+          <input id="mx-new-key" placeholder="project:context" style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem"/>
+        </div>
+        <div>
+          <div style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-bottom:0.3rem">type</div>
+          <select id="mx-new-type" style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem">
+            <option value="episodic">episodic</option>
+            <option value="semantic">semantic</option>
+            <option value="working">working</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:0.75rem">
+        <div style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-bottom:0.3rem">value * (text or JSON)</div>
+        <textarea id="mx-new-val" rows="3" placeholder='{"stack":"next.js","db":"postgres"}' style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem;resize:vertical"></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:0.75rem;align-items:flex-end">
+        <div>
+          <div style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-bottom:0.3rem">agent id</div>
+          <input id="mx-new-agent" placeholder="default" style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem"/>
+        </div>
+        <div>
+          <div style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-bottom:0.3rem">namespace</div>
+          <input id="mx-new-ns" placeholder="default" style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem"/>
+        </div>
+        <div>
+          <div style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-bottom:0.3rem">ttl (seconds)</div>
+          <input id="mx-new-ttl" placeholder="optional" type="number" style="width:100%;background:#000;border:1px solid rgba(255,255,255,0.25);color:#fff;padding:0.5rem 0.75rem;font-family:inherit;font-size:0.8rem"/>
+        </div>
+        <button onclick="memexStore()" id="mx-store-btn" style="padding:0.5rem 1.5rem;background:#fff;color:#000;border:none;font-family:inherit;font-size:0.75rem;font-weight:700;letter-spacing:0.1em;cursor:pointer;white-space:nowrap;align-self:flex-end">store →</button>
+      </div>
+      <div id="mx-store-msg" style="margin-top:0.75rem;font-size:0.75rem;color:rgba(255,255,255,0.5);display:none"></div>
     </div>
   </div>
 </div>
+</section>
+
+<!-- 04 AUTH -->
+<section id="auth" style="border-bottom:1px solid rgba(255,255,255,0.1)">
+<div class="module-section" style="max-width:1100px;margin:0 auto;padding:80px 32px">
+  <div class="module-header">
+    <span class="module-num">04</span>
+    <span class="module-title">AUTH</span>
+    <span class="module-badge">live</span>
+  </div>
+  <div class="module-desc">token-based identity and access management for the cerebrex platform. create scoped tokens, manage credentials, authenticate CLI and agent calls.</div>
+
+  <!-- login -->
+  <div id="auth-login-panel" class="auth-login">
+    <div style="font-size:10px;letter-spacing:0.1em;color:rgba(255,255,255,0.3);margin-bottom:8px">ACCESS TOKEN</div>
+    <div class="auth-login-row">
+      <input type="password" id="auth-token-input" placeholder="paste your cerebrex token" autocomplete="off"/>
+      <button onclick="authSignIn()">sign in</button>
+    </div>
+    <div class="auth-hint">
+      get a token at registry.therealcool.site/account — or run <code style="color:rgba(255,255,255,0.6)">cerebrex auth login</code> in your terminal
+    </div>
+    <div id="auth-error" style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:10px;display:none"></div>
+  </div>
+
+  <!-- authed panel -->
+  <div id="auth-authed-panel" class="auth-panel">
+    <div class="auth-user-row">
+      <div>
+        <div class="auth-user-lbl">SIGNED IN AS</div>
+        <div class="auth-user-name" id="auth-username">—</div>
+      </div>
+      <button onclick="authSignOut()" style="margin-left:auto;font-size:10px">sign out</button>
+    </div>
+
+    <div class="auth-section-title">create token</div>
+    <div class="token-create-form">
+      <input type="text" id="new-token-name" placeholder="token name (e.g. ci-deploy)"/>
+      <button onclick="createToken()">create</button>
+    </div>
+    <div class="scope-checks">
+      <label class="scope-check"><input type="checkbox" id="scope-publish" checked/> publish</label>
+      <label class="scope-check"><input type="checkbox" id="scope-install" checked/> install</label>
+      <label class="scope-check"><input type="checkbox" id="scope-admin"/> admin</label>
+    </div>
+    <div id="new-token-result" style="display:none;margin-bottom:20px">
+      <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-bottom:6px;letter-spacing:0.1em">NEW TOKEN (copy now — shown once)</div>
+      <div class="pkg-install-box">
+        <span class="pkg-install-cmd" id="new-token-value"></span>
+        <button onclick="copyText(document.getElementById('new-token-value').textContent, this)">copy</button>
+      </div>
+    </div>
+
+    <div class="auth-section-title" style="margin-top:8px">cli commands</div>
+    <div class="token-list">
+      <div class="token-row">
+        <span class="token-name">authenticate cli</span>
+        <code class="token-scope">terminal</code>
+        <button class="token-copy-cmd" onclick="copyText('cerebrex auth login', this)">copy</button>
+      </div>
+      <div class="token-row">
+        <span class="token-name">set token manually</span>
+        <code class="token-scope">terminal</code>
+        <button class="token-copy-cmd" onclick="copyText('cerebrex auth set-token YOUR_TOKEN', this)">copy</button>
+      </div>
+      <div class="token-row">
+        <span class="token-name">list my tokens</span>
+        <code class="token-scope">terminal</code>
+        <button class="token-copy-cmd" onclick="copyText('cerebrex auth tokens', this)">copy</button>
+      </div>
+      <div class="token-row">
+        <span class="token-name">revoke a token</span>
+        <code class="token-scope">terminal</code>
+        <button class="token-copy-cmd" onclick="copyText('cerebrex auth revoke TOKEN_ID', this)">copy</button>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- 05 REGISTRY -->
+<section id="registry" style="border-bottom:1px solid rgba(255,255,255,0.1)">
+<div class="module-section" style="max-width:1100px;margin:0 auto;padding:80px 32px">
+  <div class="module-header">
+    <span class="module-num">05</span>
+    <span class="module-title">REGISTRY</span>
+    <span class="module-badge">live</span>
+  </div>
+  <div class="module-desc">discover, install, and publish MCP servers. the cerebrex package registry is the central hub for agent tooling.</div>
+
+  <div class="reg-search">
+    <input type="text" id="reg-search" placeholder="search packages..." autocomplete="off" style="max-width:560px"/>
+  </div>
+  <div class="reg-stats" id="reg-stats">__INITIAL_STATS__</div>
+  <div class="pkg-grid" id="pkg-grid">__INITIAL_GRID__</div>
+</div>
+</section>
+
+<!-- 06 HIVE -->
+<section id="hive" style="border-bottom:1px solid rgba(255,255,255,0.1)">
+<div class="module-section" style="max-width:1100px;margin:0 auto;padding:80px 32px">
+  <div class="module-header">
+    <span class="module-num">06</span>
+    <span class="module-title">HIVE</span>
+    <span class="module-badge">live</span>
+  </div>
+  <div class="module-desc">multi-agent orchestration mesh. spin up agent clusters, route tasks, share memory and tools — all via a single MCP-native control plane.</div>
+
+  <div id="hive-auth-gate" style="margin-top:2rem;padding:2rem;border:1px solid rgba(255,255,255,0.1);text-align:center">
+    <div style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin-bottom:0.75rem">sign in via the AUTH module above to manage your hives</div>
+    <a href="#auth" style="font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.15);padding:0.4rem 1.2rem;text-decoration:none">↑ go to auth</a>
+  </div>
+
+  <div id="hive-browser" style="display:none;margin-top:2rem">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:0.75rem">
+      <div style="font-size:0.7rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.4)">agent networks</div>
+      <button onclick="hiveOpenCreate()" style="background:transparent;border:1px solid rgba(255,255,255,0.3);color:rgba(255,255,255,0.8);font-family:inherit;font-size:0.7rem;letter-spacing:0.1em;padding:0.35rem 1rem;cursor:pointer;text-transform:uppercase">+ new hive</button>
+    </div>
+
+    <div id="hive-list" style="margin-bottom:1.5rem"></div>
+
+    <div id="hive-create-form" style="display:none;border:1px solid rgba(255,255,255,0.15);padding:1.5rem;margin-bottom:1.5rem">
+      <div style="font-size:0.7rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-bottom:1rem">create hive</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem">
+        <div>
+          <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;letter-spacing:0.1em">NAME *</div>
+          <input id="hv-new-name" type="text" placeholder="my-agent-network" style="width:100%;box-sizing:border-box"/>
+        </div>
+        <div>
+          <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;letter-spacing:0.1em">DESCRIPTION</div>
+          <input id="hv-new-desc" type="text" placeholder="what this hive does" style="width:100%;box-sizing:border-box"/>
+        </div>
+      </div>
+      <div style="margin-bottom:0.75rem">
+        <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;letter-spacing:0.1em">CONFIG (JSON)</div>
+        <textarea id="hv-new-config" rows="8" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:0.75rem;resize:vertical">{"agents":[],"routing":"sequential","shared_memory":true}</textarea>
+      </div>
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+        <button id="hv-create-btn" onclick="hiveCreate()" style="background:white;color:black;border:none;font-family:inherit;font-size:0.75rem;letter-spacing:0.1em;padding:0.5rem 1.5rem;cursor:pointer;text-transform:uppercase">create &#x2192;</button>
+        <button onclick="hiveCloseCreate()" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.5);font-family:inherit;font-size:0.75rem;letter-spacing:0.1em;padding:0.5rem 1rem;cursor:pointer;text-transform:uppercase">cancel</button>
+        <div id="hv-create-msg" style="display:none;font-size:0.75rem;color:rgba(255,255,255,0.7)"></div>
+      </div>
+    </div>
+
+    <div id="hive-edit-panel" style="display:none;border:1px solid rgba(255,255,255,0.15);padding:1.5rem;margin-bottom:1.5rem">
+      <input type="hidden" id="hive-edit-id"/>
+      <div style="font-size:0.7rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-bottom:1rem">edit hive</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 120px;gap:0.75rem;margin-bottom:0.75rem">
+        <div>
+          <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;letter-spacing:0.1em">NAME</div>
+          <input id="hive-edit-name" type="text" disabled style="width:100%;box-sizing:border-box;opacity:0.5"/>
+        </div>
+        <div>
+          <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;letter-spacing:0.1em">DESCRIPTION</div>
+          <input id="hive-edit-desc" type="text" style="width:100%;box-sizing:border-box"/>
+        </div>
+        <div>
+          <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;letter-spacing:0.1em">STATUS</div>
+          <select id="hive-edit-status" style="width:100%;box-sizing:border-box;background:#0a0a0a;color:#fff;border:1px solid rgba(255,255,255,0.2);font-family:inherit;font-size:0.75rem;padding:0.4rem">
+            <option value="draft">draft</option>
+            <option value="active">active</option>
+            <option value="archived">archived</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:0.75rem">
+        <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;letter-spacing:0.1em">CONFIG (JSON)</div>
+        <textarea id="hive-edit-config" rows="10" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:0.75rem;resize:vertical"></textarea>
+      </div>
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+        <button onclick="hiveUpdate()" style="background:white;color:black;border:none;font-family:inherit;font-size:0.75rem;letter-spacing:0.1em;padding:0.5rem 1.5rem;cursor:pointer;text-transform:uppercase">save &#x2192;</button>
+        <button onclick="hiveDelete(document.getElementById('hive-edit-id').value)" style="background:transparent;border:1px solid rgba(255,50,50,0.4);color:rgba(255,100,100,0.7);font-family:inherit;font-size:0.75rem;letter-spacing:0.1em;padding:0.5rem 1rem;cursor:pointer;text-transform:uppercase">delete</button>
+        <button onclick="document.getElementById('hive-edit-panel').style.display='none'" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.4);font-family:inherit;font-size:0.75rem;padding:0.5rem 1rem;cursor:pointer">close</button>
+        <div id="hive-edit-msg" style="display:none;font-size:0.75rem;color:rgba(255,255,255,0.7)"></div>
+      </div>
+    </div>
+
+    <div style="border:1px solid rgba(255,255,255,0.08);padding:1.25rem;background:rgba(255,255,255,0.02)">
+      <div style="font-size:0.7rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:0.75rem">hive-mcp &#x2014; control your agent network from any mcp client</div>
+      <div class="install-row">
+        <span class="install-cmd">cerebrex install @arealcoolco/hive-mcp</span>
+        <button onclick="copyText('cerebrex install @arealcoolco/hive-mcp', this)">copy</button>
+      </div>
+      <div style="margin-top:0.75rem;font-size:0.7rem;color:rgba(255,255,255,0.3)">tools: hive_list &nbsp;/&nbsp; hive_create &nbsp;/&nbsp; hive_get &nbsp;/&nbsp; hive_update &nbsp;/&nbsp; hive_delete</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div>cerebrex &mdash; a real cool co. &mdash; registry.therealcool.site</div>
+  <div style="margin-top:10px;display:flex;justify-content:center;gap:20px">
+    <a href="https://github.com/arealcoolco/CerebreX" target="_blank">github</a>
+    <a href="https://www.npmjs.com/package/cerebrex" target="_blank">npm</a>
+    <a href="/v1/packages" target="_blank">api</a>
+    <a href="#forge">forge</a>
+    <a href="#trace">trace</a>
+    <a href="#memex">memex</a>
+    <a href="#auth">auth</a>
+    <a href="#registry">registry</a>
+    <a href="#hive">hive</a>
+  </div>
+</footer>
+
+<!-- PKG MODAL -->
+<div class="pkg-overlay" id="pkg-overlay" onclick="closePkgModal(event)">
+  <div class="pkg-modal" id="pkg-modal">
+    <div class="pkg-modal-header">
+      <div class="pkg-modal-name" id="pm-name"></div>
+      <button class="pkg-modal-close" onclick="document.getElementById('pkg-overlay').classList.remove('show')">x</button>
+    </div>
+    <div class="pkg-modal-body" id="pm-body"></div>
+  </div>
+</div>
+
 <script>
-const sessions = new Map();
-let activeSession = null;
-const ICONS = {tool_call:'🔧',llm_call:'🤖',memory_read:'📖',memory_write:'💾',error:'❌',custom:'⚡'};
-const getIcon = t => ICONS[t]||ICONS.custom;
-const fmtMs = ms => !ms?'–':ms<1000?ms+'ms':(ms/1000).toFixed(1)+'s';
-const fmtTok = t => !t?'':t<1000?t+' tok':(t/1000).toFixed(1)+'k tok';
+// ── Scroll progress ──────────────────────────────────────────────────────────
+window.addEventListener('scroll', function() {
+  var scrolled = document.documentElement.scrollTop;
+  var max = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  document.getElementById('scroll-bar').style.width = (scrolled / max * 100) + '%';
+});
 
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+// ── Utils ────────────────────────────────────────────────────────────────────
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmtDate(iso) { try { return new Date(iso).toLocaleDateString(); } catch(e) { return iso||''; } }
+function fmtSize(b) { if(!b) return ''; return b < 1024 ? b+'B' : b < 1048576 ? (b/1024).toFixed(1)+'KB' : (b/1048576).toFixed(1)+'MB'; }
+function fmtMs(ms) { return !ms ? '-' : ms < 1000 ? ms+'ms' : (ms/1000).toFixed(1)+'s'; }
+function fmtTok(t) { return !t ? '' : t < 1000 ? t+' tok' : (t/1000).toFixed(1)+'k tok'; }
 
-function loadTrace(data, name) {
-  const s = typeof data==='string'?JSON.parse(data):data;
-  const id = s.session||name||'trace-'+Date.now();
-  sessions.set(id, s);
-  renderSidebar();
-  selectSession(id);
+function copyText(txt, btn) {
+  navigator.clipboard.writeText(txt).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = 'copied';
+    setTimeout(function() { btn.textContent = orig; }, 1500);
+  });
 }
 
-function renderSidebar() {
-  document.getElementById('session-count').textContent = sessions.size;
-  const list = document.getElementById('session-list');
-  list.innerHTML='';
-  for(const [id,s] of sessions){
-    const steps=s.steps||[];
-    const ms=steps.reduce((a,b)=>a+(b.latencyMs||0),0);
-    const el=document.createElement('div');
-    el.className='session-item'+(activeSession===id?' active':'');
-    el.innerHTML='<div class="session-name">'+esc(s.session||id)+'</div><div class="session-meta">'+steps.length+' steps · '+fmtMs(ms)+'</div>';
-    el.addEventListener('click',()=>selectSession(id));
+// ── FORGE ────────────────────────────────────────────────────────────────────
+function generateForgeCmd() {
+  var name = document.getElementById('forge-name').value.trim() || 'my-mcp-server';
+  var tmpl = document.getElementById('forge-template').value;
+  var cmd = 'cerebrex forge ' + name + ' --template ' + tmpl;
+  document.getElementById('forge-cmd-text').textContent = cmd;
+  document.getElementById('forge-output').classList.add('show');
+}
+
+function copyForge(btn) {
+  copyText(document.getElementById('forge-cmd-text').textContent, btn);
+}
+
+// ── TRACE ────────────────────────────────────────────────────────────────────
+var traceSessions = new Map();
+var traceActive = null;
+
+var TRACE_DOTS = {tool_call:'T',llm_call:'L',memory_read:'M',memory_write:'W',error:'E',custom:'*'};
+
+function loadTrace(data, name) {
+  var s = typeof data === 'string' ? JSON.parse(data) : data;
+  var id = s.session || name || 'trace-' + Date.now();
+  traceSessions.set(id, s);
+  renderTraceSidebar();
+  selectTrace(id);
+}
+
+function renderTraceSidebar() {
+  document.getElementById('trace-session-count').textContent = traceSessions.size;
+  var list = document.getElementById('trace-session-list');
+  list.innerHTML = '';
+  for (var entry of traceSessions.entries()) {
+    var id = entry[0], s = entry[1];
+    var steps = s.steps || [];
+    var ms = steps.reduce(function(a, b) { return a + (b.latencyMs||0); }, 0);
+    var el = document.createElement('div');
+    el.className = 'trace-session-item' + (traceActive === id ? ' active' : '');
+    el.innerHTML = '<div class="trace-session-name">' + esc(s.session||id) + '</div><div class="trace-session-meta">' + steps.length + ' steps / ' + fmtMs(ms) + '</div>';
+    (function(sid) { el.addEventListener('click', function() { selectTrace(sid); }); })(id);
     list.appendChild(el);
   }
 }
 
-function selectSession(id){activeSession=id;renderSidebar();renderTrace(id);}
+function selectTrace(id) {
+  traceActive = id;
+  renderTraceSidebar();
+  renderTraceView(id);
+}
 
-function renderTrace(id) {
-  const s=sessions.get(id);
-  const steps=s.steps||[];
-  document.getElementById('drop-zone').style.display='none';
-  const tv=document.getElementById('trace-view');
-  tv.style.display='flex';
-  const ms=steps.reduce((a,b)=>a+(b.latencyMs||0),0);
-  const tok=steps.reduce((a,b)=>a+(b.tokens||0),0);
-  const errs=steps.filter(x=>x.type==='error').length;
-  document.getElementById('trace-header').innerHTML=
-    '<div class="trace-title">'+esc(s.session||id)+'</div>'+
-    (errs?'<span class="badge badge-yellow">'+errs+' error'+(errs>1?'s':'')+'</span>':'<span class="badge badge-green">Clean</span>')+
-    '<div class="stats-row">'+
-    '<div class="stat"><div class="stat-value">'+steps.length+'</div><div class="stat-label">Steps</div></div>'+
-    '<div class="stat"><div class="stat-value">'+fmtMs(ms)+'</div><div class="stat-label">Time</div></div>'+
-    (tok?'<div class="stat"><div class="stat-value">'+fmtTok(tok)+'</div><div class="stat-label">Tokens</div></div>':'')+
+function renderTraceView(id) {
+  var s = traceSessions.get(id);
+  var steps = s.steps || [];
+  document.getElementById('trace-drop-zone').style.display = 'none';
+  var wrap = document.getElementById('trace-view-wrap');
+  wrap.style.display = 'flex';
+
+  var ms = steps.reduce(function(a,b){return a+(b.latencyMs||0);},0);
+  var tok = steps.reduce(function(a,b){return a+(b.tokens||0);},0);
+  var errs = steps.filter(function(x){return x.type==='error';}).length;
+
+  document.getElementById('trace-view-header').innerHTML =
+    '<span class="trace-view-title">' + esc(s.session||id) + '</span>' +
+    '<span class="trace-badge">' + (errs ? errs + ' error' + (errs>1?'s':'') : 'clean') + '</span>' +
+    '<div class="trace-stats">' +
+      '<div class="trace-stat"><div class="trace-stat-val">' + steps.length + '</div><div class="trace-stat-lbl">STEPS</div></div>' +
+      '<div class="trace-stat"><div class="trace-stat-val">' + fmtMs(ms) + '</div><div class="trace-stat-lbl">TIME</div></div>' +
+      (tok ? '<div class="trace-stat"><div class="trace-stat-val">' + fmtTok(tok) + '</div><div class="trace-stat-lbl">TOKENS</div></div>' : '') +
     '</div>';
-  const tl=document.getElementById('timeline');
-  tl.innerHTML='';
-  if(!steps.length){tl.innerHTML='<div style="color:var(--muted);padding:32px;text-align:center">No steps recorded</div>';return;}
-  steps.forEach((step,i)=>{
-    const type=step.type||'custom',name=esc(step.toolName||step.name||type);
-    const el=document.createElement('div');
-    el.className='step';
-    const hasDetails=!!(step.inputs||step.outputs||step.error);
-    el.innerHTML=
-      '<div class="step-icon icon-'+type+'">'+getIcon(type)+'</div>'+
-      '<div class="step-body" id="sb'+i+'">'+
-        '<div class="step-top">'+
-          '<span class="step-type type-'+type+'">'+type.replace('_',' ')+'</span>'+
-          '<span class="step-name">'+name+'</span>'+
-          '<div class="step-meta">'+
-            (step.latencyMs?'<span>⏱ '+fmtMs(step.latencyMs)+'</span>':'')+
-            (step.tokens?'<span>'+fmtTok(step.tokens)+'</span>':'')+
-          '</div>'+
-        '</div>'+
-        (hasDetails?
-          '<div class="step-details" id="sd'+i+'">'+
-            '<div class="detail-grid">'+
-              (step.inputs?'<div><div class="detail-label">Inputs</div><div class="detail-value">'+esc(JSON.stringify(step.inputs,null,2))+'</div></div>':'')+
-              (step.outputs?'<div><div class="detail-label">Outputs</div><div class="detail-value">'+esc(JSON.stringify(step.outputs,null,2))+'</div></div>':'')+
-              (step.error?'<div style="grid-column:span 2"><div class="detail-label" style="color:var(--red)">Error</div><div class="detail-value" style="color:var(--red)">'+esc(step.error)+'</div></div>':'')+
-            '</div>'+
+
+  var tl = document.getElementById('trace-timeline');
+  tl.innerHTML = '';
+  if (!steps.length) {
+    tl.innerHTML = '<div style="padding:32px;text-align:center;font-size:12px;color:rgba(255,255,255,0.3)">no steps recorded</div>';
+    return;
+  }
+  steps.forEach(function(step, i) {
+    var type = step.type || 'custom';
+    var sname = esc(step.toolName || step.name || type);
+    var hasDetails = !!(step.inputs || step.outputs || step.error);
+    var el = document.createElement('div');
+    el.className = 'trace-step';
+    var dotChar = TRACE_DOTS[type] || TRACE_DOTS.custom;
+    el.innerHTML =
+      '<div class="trace-step-dot type-' + type + '">' + dotChar + '</div>' +
+      '<div class="trace-step-body" id="tsb' + i + '">' +
+        '<div class="trace-step-top">' +
+          '<span class="trace-step-type type-' + type + '">' + type.replace('_',' ') + '</span>' +
+          '<span class="trace-step-name">' + sname + '</span>' +
+          (step.latencyMs ? '<span class="trace-step-ms">' + fmtMs(step.latencyMs) + '</span>' : '') +
+        '</div>' +
+        (hasDetails ?
+          '<div class="trace-step-details" id="tsd' + i + '">' +
+            '<div class="trace-detail-grid">' +
+              (step.inputs ? '<div><div class="trace-detail-lbl">inputs</div><div class="trace-detail-val">' + esc(JSON.stringify(step.inputs,null,2)) + '</div></div>' : '') +
+              (step.outputs ? '<div><div class="trace-detail-lbl">outputs</div><div class="trace-detail-val">' + esc(JSON.stringify(step.outputs,null,2)) + '</div></div>' : '') +
+              (step.error ? '<div style="grid-column:span 2"><div class="trace-detail-lbl">error</div><div class="trace-detail-val">' + esc(step.error) + '</div></div>' : '') +
+            '</div>' +
           '</div>'
-        :'')+
+        : '') +
       '</div>';
-    if(hasDetails){
-      el.querySelector('#sb'+i).addEventListener('click',()=>{
-        el.querySelector('#sd'+i).classList.toggle('show');
-        el.querySelector('#sb'+i).classList.toggle('expanded');
-      });
+    if (hasDetails) {
+      (function(idx) {
+        el.querySelector('#tsb' + idx).addEventListener('click', function() {
+          el.querySelector('#tsd' + idx).classList.toggle('show');
+          el.querySelector('#tsb' + idx).classList.toggle('expanded');
+        });
+      })(i);
     }
     tl.appendChild(el);
   });
 }
 
-// File input
-document.getElementById('file-input').addEventListener('change',e=>{
-  for(const f of e.target.files){
-    const r=new FileReader();
-    r.onload=ev=>{try{loadTrace(ev.target.result,f.name.replace('.json',''));}catch(e2){alert('Could not parse '+f.name+': '+e2.message);}};
-    r.readAsText(f);
+document.getElementById('trace-file-input').addEventListener('change', function(e) {
+  for (var i = 0; i < e.target.files.length; i++) {
+    (function(f) {
+      var r = new FileReader();
+      r.onload = function(ev) {
+        try { loadTrace(ev.target.result, f.name.replace('.json','')); }
+        catch(e2) { alert('Could not parse ' + f.name + ': ' + e2.message); }
+      };
+      r.readAsText(f);
+    })(e.target.files[i]);
   }
 });
 
-// Drag and drop
-const dz=document.getElementById('drop-zone');
-document.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag');});
-document.addEventListener('dragleave',e=>{if(!e.relatedTarget)dz.classList.remove('drag');});
-document.addEventListener('drop',e=>{
-  e.preventDefault();dz.classList.remove('drag');
-  for(const f of e.dataTransfer.files){
-    if(!f.name.endsWith('.json'))continue;
-    const r=new FileReader();
-    r.onload=ev=>{try{loadTrace(ev.target.result,f.name.replace('.json',''));}catch(e2){alert('Could not parse '+f.name);}};
-    r.readAsText(f);
+var traceDz = document.getElementById('trace-drop-zone');
+document.addEventListener('dragover', function(e) { e.preventDefault(); traceDz.classList.add('drag'); });
+document.addEventListener('dragleave', function(e) { if (!e.relatedTarget) traceDz.classList.remove('drag'); });
+document.addEventListener('drop', function(e) {
+  e.preventDefault(); traceDz.classList.remove('drag');
+  var files = e.dataTransfer.files;
+  for (var i = 0; i < files.length; i++) {
+    if (!files[i].name.endsWith('.json')) continue;
+    (function(f) {
+      var r = new FileReader();
+      r.onload = function(ev) {
+        try { loadTrace(ev.target.result, f.name.replace('.json','')); }
+        catch(e2) { alert('Could not parse ' + f.name); }
+      };
+      r.readAsText(f);
+    })(files[i]);
   }
 });
+
+// ── NOTIFY ───────────────────────────────────────────────────────────────────
+function notifySignup(module) {
+  var email = document.getElementById(module + '-email').value.trim();
+  if (!email) return;
+  document.getElementById(module + '-msg').style.display = 'block';
+  document.getElementById(module + '-email').disabled = true;
+}
+
+// ── MEMEX ─────────────────────────────────────────────────────────────────────
+function memexInit() {
+  if (authToken) {
+    document.getElementById('memex-auth-gate').style.display = 'none';
+    document.getElementById('memex-browser').style.display = 'block';
+    memexLoad();
+  } else {
+    document.getElementById('memex-auth-gate').style.display = 'block';
+    document.getElementById('memex-browser').style.display = 'none';
+  }
+}
+
+function memexLoad() {
+  if (!authToken) return;
+  var agent = (document.getElementById('mx-agent').value || '').trim();
+  var ns = (document.getElementById('mx-ns').value || '').trim();
+  var q = (document.getElementById('mx-q').value || '').trim();
+  var url = '/v1/memex?limit=200';
+  if (agent) url += '&agent_id=' + encodeURIComponent(agent);
+  if (ns) url += '&namespace=' + encodeURIComponent(ns);
+  if (q) url += '&q=' + encodeURIComponent(q);
+  var list = document.getElementById('mx-list');
+  list.innerHTML = '<div style="padding:1.5rem;text-align:center;color:rgba(255,255,255,0.3);font-size:0.8rem">loading...</div>';
+  fetch(url, { headers: { Authorization: 'Bearer ' + authToken } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.success) { list.innerHTML = '<div style="padding:1.5rem;color:rgba(255,0,0,0.7);font-size:0.8rem">' + escHtml(d.error || 'error') + '</div>'; return; }
+      if (!d.memories.length) {
+        list.innerHTML = '<div style="padding:2rem;text-align:center;color:rgba(255,255,255,0.3);font-size:0.8rem">no memories stored yet. use the form below to store the first one.</div>';
+        return;
+      }
+      var rows = d.memories.map(function(m) {
+        var val = typeof m.value === 'string' ? m.value : JSON.stringify(m.value, null, 2);
+        var valShort = val.length > 120 ? val.slice(0, 117) + '...' : val;
+        return '<div style="display:grid;grid-template-columns:1fr 1fr 80px 70px auto;gap:0;border-bottom:1px solid rgba(255,255,255,0.06);padding:0.75rem 1rem;align-items:center" class="mx-row">' +
+          '<div style="font-size:0.8rem;font-weight:700;word-break:break-all">' + escHtml(m.agent_id) + '<span style="color:rgba(255,255,255,0.35);margin:0 0.3rem">/</span>' + escHtml(m.namespace) + '<span style="color:rgba(255,255,255,0.35);margin:0 0.3rem">/</span>' + escHtml(m.key) + '</div>' +
+          '<div style="font-size:0.75rem;color:rgba(255,255,255,0.55);word-break:break-all;padding:0 0.5rem" title="' + escHtml(val) + '">' + escHtml(valShort) + '</div>' +
+          '<div style="font-size:0.65rem;color:rgba(255,255,255,0.35);text-align:center">' + escHtml(m.type) + '</div>' +
+          '<div style="font-size:0.65rem;color:rgba(255,255,255,0.3);text-align:center">' + (m.expires_at ? 'exp ' + m.expires_at.slice(0,10) : 'no exp') + '</div>' +
+          '<button onclick="memexForget(\'' + escHtml(m.id) + '\')" style="padding:0.3rem 0.75rem;background:transparent;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.5);font-family:inherit;font-size:0.65rem;cursor:pointer;letter-spacing:0.1em;white-space:nowrap">forget</button>' +
+          '</div>';
+      });
+      list.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr 80px 70px auto;padding:0.5rem 1rem;border-bottom:1px solid rgba(255,255,255,0.15)">' +
+        '<div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.3)">agent / namespace / key</div>' +
+        '<div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.3);padding:0 0.5rem">value</div>' +
+        '<div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.3);text-align:center">type</div>' +
+        '<div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.3);text-align:center">ttl</div>' +
+        '<div></div>' +
+        '</div>' + rows.join('');
+    })
+    .catch(function() { list.innerHTML = '<div style="padding:1.5rem;color:rgba(255,0,0,0.6);font-size:0.8rem">failed to load memories</div>'; });
+}
+
+function memexForget(id) {
+  if (!authToken) return;
+  fetch('/v1/memex/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + authToken } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.success) memexLoad(); else alert('Could not forget: ' + (d.error || 'unknown error')); });
+}
+
+function memexStore() {
+  if (!authToken) return;
+  var key = document.getElementById('mx-new-key').value.trim();
+  var val = document.getElementById('mx-new-val').value.trim();
+  var agent = document.getElementById('mx-new-agent').value.trim() || 'default';
+  var ns = document.getElementById('mx-new-ns').value.trim() || 'default';
+  var type = document.getElementById('mx-new-type').value;
+  var ttl = document.getElementById('mx-new-ttl').value;
+  var msg = document.getElementById('mx-store-msg');
+  if (!key || !val) { msg.style.display='block'; msg.textContent='key and value are required'; return; }
+  var body = { key: key, agent_id: agent, namespace: ns, type: type };
+  try { body.value = JSON.parse(val); } catch(e) { body.value = val; }
+  if (ttl) body.ttl_seconds = parseInt(ttl);
+  var btn = document.getElementById('mx-store-btn');
+  btn.textContent = 'storing...'; btn.disabled = true;
+  fetch('/v1/memex', { method: 'POST', headers: { Authorization: 'Bearer ' + authToken, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      btn.textContent = 'store →'; btn.disabled = false;
+      if (d.success) {
+        msg.style.display='block'; msg.textContent = d.created ? '✓ stored' : '✓ updated';
+        document.getElementById('mx-new-key').value=''; document.getElementById('mx-new-val').value='';
+        setTimeout(function(){msg.style.display='none';},3000);
+        memexLoad();
+      } else { msg.style.display='block'; msg.textContent='error: ' + (d.error||'unknown'); }
+    })
+    .catch(function(){btn.textContent='store →';btn.disabled=false;msg.style.display='block';msg.textContent='network error';});
+}
+
+// ── HIVE ─────────────────────────────────────────────────────────────────────
+function hiveInit() {
+  if (authToken) {
+    document.getElementById('hive-auth-gate').style.display = 'none';
+    document.getElementById('hive-browser').style.display = 'block';
+    hiveLoad();
+  } else {
+    document.getElementById('hive-auth-gate').style.display = 'block';
+    document.getElementById('hive-browser').style.display = 'none';
+  }
+}
+
+function hiveLoad() {
+  if (!authToken) return;
+  var list = document.getElementById('hive-list');
+  list.innerHTML = '<div style="padding:1.5rem;text-align:center;color:rgba(255,255,255,0.3);font-size:0.8rem">loading...</div>';
+  fetch('/v1/hive', { headers: { Authorization: 'Bearer ' + authToken } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.success) { list.innerHTML = '<div style="padding:1rem;color:rgba(255,0,0,0.7);font-size:0.8rem">' + escHtml(d.error||'error') + '</div>'; return; }
+      if (!d.hives.length) {
+        list.innerHTML = '<div style="padding:2rem;text-align:center;color:rgba(255,255,255,0.3);font-size:0.8rem">no hives yet. create your first agent network above.</div>';
+        return;
+      }
+      list.innerHTML = '<div style="display:grid;grid-template-columns:1fr 2fr 80px 90px auto;padding:0.5rem 1rem;border-bottom:1px solid rgba(255,255,255,0.15)">' +
+        '<div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.3)">name</div>' +
+        '<div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.3)">description</div>' +
+        '<div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.3)">status</div>' +
+        '<div style="font-size:0.6rem;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.3)">created</div>' +
+        '<div></div></div>' +
+        d.hives.map(function(h) {
+          var statusColor = h.status === 'active' ? 'rgba(100,255,100,0.8)' : h.status === 'archived' ? 'rgba(255,255,255,0.2)' : 'rgba(255,200,50,0.7)';
+          return '<div style="display:grid;grid-template-columns:1fr 2fr 80px 90px auto;gap:0;border-bottom:1px solid rgba(255,255,255,0.06);padding:0.75rem 1rem;align-items:center">' +
+            '<div style="font-size:0.8rem;font-weight:700">' + escHtml(h.name) + '</div>' +
+            '<div style="font-size:0.75rem;color:rgba(255,255,255,0.55)">' + escHtml(h.description||'—') + '</div>' +
+            '<div style="font-size:0.65rem;color:' + statusColor + '">' + escHtml(h.status) + '</div>' +
+            '<div style="font-size:0.65rem;color:rgba(255,255,255,0.3)">' + (h.created_at||'').slice(0,10) + '</div>' +
+            '<button onclick="hiveSelect(\'' + escHtml(h.id) + '\')" style="padding:0.3rem 0.75rem;background:transparent;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.5);font-family:inherit;font-size:0.65rem;cursor:pointer;letter-spacing:0.1em;white-space:nowrap">edit</button>' +
+            '</div>';
+        }).join('');
+    })
+    .catch(function() { list.innerHTML = '<div style="padding:1rem;color:rgba(255,0,0,0.6);font-size:0.8rem">failed to load hives</div>'; });
+}
+
+function hiveSelect(id) {
+  fetch('/v1/hive/' + id, { headers: { Authorization: 'Bearer ' + authToken } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.success) return;
+      var h = d.hive;
+      document.getElementById('hive-edit-id').value = h.id;
+      document.getElementById('hive-edit-name').value = h.name;
+      document.getElementById('hive-edit-desc').value = h.description || '';
+      document.getElementById('hive-edit-config').value = typeof h.config === 'string' ? h.config : JSON.stringify(h.config, null, 2);
+      document.getElementById('hive-edit-status').value = h.status || 'draft';
+      document.getElementById('hive-edit-panel').style.display = 'block';
+      document.getElementById('hive-create-form').style.display = 'none';
+      document.getElementById('hive-edit-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+}
+
+function hiveUpdate() {
+  var id = document.getElementById('hive-edit-id').value;
+  var desc = document.getElementById('hive-edit-desc').value.trim();
+  var configStr = document.getElementById('hive-edit-config').value.trim();
+  var status = document.getElementById('hive-edit-status').value;
+  var msg = document.getElementById('hive-edit-msg');
+  var config;
+  try { config = JSON.parse(configStr || '{}'); } catch(e) { msg.style.display='block'; msg.textContent='invalid JSON config'; return; }
+  fetch('/v1/hive/' + id, {
+    method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + authToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description: desc, config: config, status: status })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        msg.style.display='block'; msg.textContent='saved';
+        setTimeout(function(){ msg.style.display='none'; }, 3000);
+        hiveLoad();
+      } else { msg.style.display='block'; msg.textContent='error: ' + (d.error||'unknown'); }
+    });
+}
+
+function hiveDelete(id) {
+  if (!confirm('Delete this hive? This cannot be undone.')) return;
+  fetch('/v1/hive/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + authToken } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) { document.getElementById('hive-edit-panel').style.display='none'; hiveLoad(); }
+      else { alert('Could not delete: ' + (d.error||'unknown')); }
+    });
+}
+
+function hiveCreate() {
+  var name = document.getElementById('hv-new-name').value.trim();
+  var desc = document.getElementById('hv-new-desc').value.trim();
+  var configStr = document.getElementById('hv-new-config').value.trim();
+  var msg = document.getElementById('hv-create-msg');
+  if (!name) { msg.style.display='block'; msg.textContent='name is required'; return; }
+  var config;
+  try { config = JSON.parse(configStr || '{}'); } catch(e) { msg.style.display='block'; msg.textContent='invalid JSON config'; return; }
+  var btn = document.getElementById('hv-create-btn');
+  btn.textContent = 'creating...'; btn.disabled = true;
+  fetch('/v1/hive', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + authToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, description: desc, config: config })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      btn.textContent = 'create \u2192'; btn.disabled = false;
+      if (d.success) {
+        msg.style.display='block'; msg.textContent='hive created';
+        document.getElementById('hv-new-name').value='';
+        document.getElementById('hv-new-desc').value='';
+        document.getElementById('hv-new-config').value='{"agents":[],"routing":"sequential","shared_memory":true}';
+        setTimeout(function(){ msg.style.display='none'; document.getElementById('hive-create-form').style.display='none'; }, 2000);
+        hiveLoad();
+      } else { msg.style.display='block'; msg.textContent='error: ' + (d.error||'unknown'); }
+    })
+    .catch(function(){ btn.textContent='create \u2192'; btn.disabled=false; msg.style.display='block'; msg.textContent='network error'; });
+}
+
+function hiveOpenCreate() {
+  document.getElementById('hive-edit-panel').style.display = 'none';
+  document.getElementById('hive-create-form').style.display = 'block';
+}
+
+function hiveCloseCreate() {
+  document.getElementById('hive-create-form').style.display = 'none';
+}
+
+// ── AUTH ─────────────────────────────────────────────────────────────────────
+var authToken = null;
+
+function authInit() {
+  var saved = localStorage.getItem('cerebrex_token');
+  if (saved) { authToken = saved; fetchMe(); }
+}
+
+function authSignIn() {
+  var val = document.getElementById('auth-token-input').value.trim();
+  if (!val) return;
+  authToken = val;
+  localStorage.setItem('cerebrex_token', val);
+  fetchMe();
+}
+
+function fetchMe() {
+  fetch('/v1/users/me', {
+    headers: { 'Authorization': 'Bearer ' + authToken }
+  }).then(function(r) {
+    if (!r.ok) throw new Error('unauthorized');
+    return r.json();
+  }).then(function(d) {
+    document.getElementById('auth-username').textContent = '@' + (d.username || d.name || 'user');
+    document.getElementById('auth-login-panel').style.display = 'none';
+    document.getElementById('auth-authed-panel').classList.add('show');
+    memexInit();
+    hiveInit();
+  }).catch(function() {
+    document.getElementById('auth-error').textContent = 'invalid token — check and try again';
+    document.getElementById('auth-error').style.display = 'block';
+    localStorage.removeItem('cerebrex_token');
+    authToken = null;
+  });
+}
+
+function authSignOut() {
+  localStorage.removeItem('cerebrex_token');
+  authToken = null;
+  document.getElementById('auth-token-input').value = '';
+  document.getElementById('auth-login-panel').style.display = 'block';
+  document.getElementById('auth-authed-panel').classList.remove('show');
+  document.getElementById('auth-error').style.display = 'none';
+  document.getElementById('new-token-result').style.display = 'none';
+  memexInit();
+  hiveInit();
+}
+
+function createToken() {
+  var name = document.getElementById('new-token-name').value.trim();
+  if (!name) { alert('enter a token name'); return; }
+  var scopes = [];
+  if (document.getElementById('scope-publish').checked) scopes.push('publish');
+  if (document.getElementById('scope-install').checked) scopes.push('install');
+  if (document.getElementById('scope-admin').checked) scopes.push('admin');
+  fetch('/v1/auth/tokens', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, scopes: scopes })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    var tok = d.token || d.value || d.secret || '';
+    if (!tok) { alert('token created (value not returned by API)'); return; }
+    document.getElementById('new-token-value').textContent = tok;
+    document.getElementById('new-token-result').style.display = 'block';
+    document.getElementById('new-token-name').value = '';
+  }).catch(function(e2) { alert('failed to create token: ' + e2.message); });
+}
+
+// ── REGISTRY ─────────────────────────────────────────────────────────────────
+var allPackages = [];
+var regSearchTimer = null;
+
+async function regLoad(q) {
+  q = q || '';
+  var url = '/v1/packages?limit=100' + (q ? '&q=' + encodeURIComponent(q) : '');
+  try {
+    var r = await fetch(url);
+    var d = await r.json();
+    allPackages = d.packages || [];
+    regRender(allPackages);
+    document.getElementById('reg-stats').innerHTML = '<strong>' + (d.count || allPackages.length) + '</strong> packages' + (q ? ' matching "' + esc(q) + '"' : ' in the registry');
+  } catch(e) {
+    // keep SSR data if fetch fails
+  }
+}
+
+function regRender(pkgs) {
+  var grid = document.getElementById('pkg-grid');
+  if (!pkgs.length) {
+    grid.innerHTML = '<div class="pkg-empty">no packages found.</div>';
+    return;
+  }
+  grid.innerHTML = pkgs.map(function(p, i) {
+    return '<div class="pkg-card' + (p.featured ? ' featured' : '') + '" onclick="showPkg(' + i + ')">' +
+      (p.featured ? '<span class="pkg-official">* official</span>' : '') +
+      '<div class="pkg-name">' + esc(p.name) + '</div>' +
+      '<div class="pkg-desc">' + esc(p.description || 'no description') + '</div>' +
+      '<div class="pkg-meta">' +
+        (p.tags||[]).slice(0,3).map(function(t) { return '<span class="pkg-tag">' + esc(t) + '</span>'; }).join('') +
+        '<span class="pkg-ver">v' + esc(p.version) + '</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function showPkg(i) {
+  var p = allPackages[i];
+  document.getElementById('pm-name').textContent = p.name;
+  var tags = (p.tags||[]).map(function(t) { return '<span class="pkg-tag">' + esc(t) + '</span>'; }).join('');
+  document.getElementById('pm-body').innerHTML =
+    '<div class="pkg-modal-desc">' + esc(p.description || 'no description provided.') + '</div>' +
+    (tags ? '<div class="pkg-detail-label">tags</div><div class="pkg-tags-row">' + tags + '</div>' : '') +
+    '<div class="pkg-detail-label">install</div>' +
+    '<div class="pkg-install-box">' +
+      '<span class="pkg-install-cmd">cerebrex install ' + esc(p.name) + '</span>' +
+      '<button onclick="copyText(\'cerebrex install ' + esc(p.name) + '\', this)">copy</button>' +
+    '</div>' +
+    '<div class="pkg-detail-label">version</div>' +
+    '<div class="pkg-install-box" style="margin-bottom:16px">' +
+      '<span class="pkg-install-cmd">v' + esc(p.version) + '</span>' +
+      '<span style="font-size:10px;color:rgba(255,255,255,0.3)">' + fmtDate(p.published_at) + '</span>' +
+    '</div>' +
+    '<div class="pkg-meta-row">' +
+      'by <a href="/u/' + esc(p.author||'') + '">@' + esc(p.author||'unknown') + '</a>' +
+      (p.tarball_size ? ' &middot; ' + fmtSize(p.tarball_size) : '') +
+      (p.deprecated ? ' &middot; <span style="color:rgba(255,255,255,0.6)">[deprecated]</span>' : '') +
+      (p.download_count ? ' &middot; ' + p.download_count + ' installs' : '') +
+    '</div>';
+  document.getElementById('pkg-overlay').classList.add('show');
+}
+
+function closePkgModal(e) {
+  if (e.target === document.getElementById('pkg-overlay')) document.getElementById('pkg-overlay').classList.remove('show');
+}
+
+document.getElementById('reg-search').addEventListener('input', function(e) {
+  clearTimeout(regSearchTimer);
+  regSearchTimer = setTimeout(function() { regLoad(e.target.value.trim()); }, 280);
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.getElementById('pkg-overlay').classList.remove('show');
+  }
+});
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+authInit();
+regLoad();
+memexInit();
+hiveInit();
 </script>
 </body>
 </html>`;
+
+  const esc = (s: string) => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  const gridHtml = initialPackages.length === 0
+    ? '<div class="pkg-empty">No packages published yet. Run <code>cerebrex publish</code> to add the first.</div>'
+    : initialPackages.map((p: any, i: number) =>
+        '<div class="pkg-card' + (p.featured ? ' featured' : '') + '" onclick="showPkg(' + i + ')">' +
+          (p.featured ? '<span class="pkg-official">* official</span>' : '') +
+          '<div class="pkg-name">' + esc(p.name) + '</div>' +
+          '<div class="pkg-desc">' + esc(p.description || 'No description') + '</div>' +
+          '<div class="pkg-meta">' +
+            (p.tags||[]).slice(0,3).map((t: string) => '<span class="pkg-tag">' + esc(t) + '</span>').join('') +
+            '<span class="pkg-ver">v' + esc(p.version) + '</span>' +
+          '</div>' +
+        '</div>'
+      ).join('');
+
+  const statsHtml = '<strong>' + initialCount + '</strong> packages in the registry';
+
+  return page
+    .replace('__INITIAL_GRID__', gridHtml)
+    .replace('__INITIAL_STATS__', statsHtml)
+    .replace('let allPackages = [];', 'let allPackages = ' + JSON.stringify(initialPackages) + ';');
 }
 
 // ── Web UI — Profile Page ─────────────────────────────────────────────────────
@@ -1514,6 +2879,40 @@ async function handleRevokeToken(request: Request, env: Env): Promise<Response> 
 
   await env.DB.prepare('DELETE FROM tokens WHERE token_hash = ?').bind(hash).run();
   return json({ success: true, message: 'Token revoked. Run: cerebrex auth logout' });
+}
+
+async function handleCreateToken(request: Request, env: Env): Promise<Response> {
+  const token = getToken(request);
+  if (!token) return err('Authorization required', 401);
+
+  const { valid, owner } = await validateToken(token, env);
+  if (!valid) return err('Invalid or expired token', 401);
+
+  let body: { name?: string; scopes?: string[] } = {};
+  try { body = await request.json() as typeof body; } catch { /**/ }
+
+  const name = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim().slice(0, 64) : 'unnamed';
+  const allowedScopes = ['publish', 'install', 'admin'];
+  const scopes = Array.isArray(body.scopes)
+    ? body.scopes.filter((s: unknown) => typeof s === 'string' && allowedScopes.includes(s))
+    : ['install'];
+
+  // Non-admins cannot create admin-scoped tokens
+  const userRow = await env.DB.prepare('SELECT role FROM users WHERE username = ?').bind(owner).first<{ role: string }>();
+  const isAdminUser = userRow?.role === 'admin';
+  const finalScopes = isAdminUser ? scopes : scopes.filter(s => s !== 'admin');
+
+  const rawToken = 'cbrx_' + Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2,'0')).join('');
+  const hash = await hashToken(rawToken);
+  const now = new Date();
+  const expiresAt = new Date(now);
+  expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+  await env.DB.prepare(
+    'INSERT INTO tokens (token_hash, owner, created_at, expires_at) VALUES (?, ?, ?, ?)'
+  ).bind(hash, owner, now.toISOString(), expiresAt.toISOString()).run();
+
+  return json({ success: true, token: rawToken, name, scopes: finalScopes, owner }, 201);
 }
 
 async function handleDeprecate(request: Request, env: Env, name: string, version: string): Promise<Response> {

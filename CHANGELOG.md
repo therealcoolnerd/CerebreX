@@ -6,6 +6,42 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.7.0] — 2026-03-24
+
+### All 6 Modules Live — Data Sovereignty Release
+
+#### HIVE — Cloud API + MCP Package
+- **HIVE cloud API** — `GET/POST /v1/hive`, `GET/PATCH/DELETE /v1/hive/:id` — create and manage agent coordination configs from anywhere
+- **D1 schema-v5.sql** — `hives` table with owner-scoped isolation, status lifecycle, UNIQUE(owner, name)
+- **HIVE UI** — full browser interface in the registry dashboard: create, edit, delete, install instructions
+- **`@arealcoolco/hive-mcp@1.0.0`** — MCP package with 5 tools: `hive_list`, `hive_create`, `hive_get`, `hive_update`, `hive_delete`
+- **HIVE rate limit** — 30 writes/min per token
+
+#### New Official MCP Packages (all featured in registry)
+- **`@arealcoolco/fetch-mcp@1.0.0`** — `http_get`, `http_post`, `http_request` — AI agents can make HTTP requests
+- **`@arealcoolco/datetime-mcp@1.0.0`** — `datetime_now`, `datetime_convert`, `datetime_diff`, `datetime_format` — timezone-aware time tools
+- **`@arealcoolco/kvstore-mcp@1.0.0`** — `kv_set`, `kv_get`, `kv_delete`, `kv_list`, `kv_clear` — ephemeral session key-value store with TTL
+
+#### Security Hardening
+- **Real token authentication** — SHA-256 hashed tokens, never stored plaintext
+- **Rate limits** — MEMEX writes: 120/min, HIVE writes: 30/min (KV-backed per-token)
+- **Input validation** — HIVE name/status whitelisted; all user inputs sanitized
+- **Token self-service** — `POST /v1/auth/tokens` — authenticated users can create scoped tokens; non-admins cannot escalate
+- **JWT integrity** — HMAC-SHA256 signatures on HIVE tokens
+
+#### Website + Whitepaper
+- **therealcool.site is live** — full CerebreX whitepaper with manifesto, all 6 modules, quickstart
+- All module badges updated to **live** (MEMEX and HIVE were showing "building"/"coming soon")
+- Added **Proof of Work** section with real live metrics
+- Added **Use Cases** section with 5 concrete scenarios
+- Added **Data Sovereignty + Why Open Source** manifesto — why the infrastructure layer must be open
+- `String.replace()` → `String.replaceAll()` fix — all 3 `__WHITEPAPER_URL__` occurrences now replaced
+
+#### CLI — v0.7.0
+- Version bumped to `0.7.0`
+
+---
+
 ## [0.6.2] — 2026-03-23
 
 ### Registry — Users, Roles & Official Packages

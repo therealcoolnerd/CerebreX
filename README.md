@@ -19,13 +19,12 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.6.1 — Registry hardened, full publish/deprecate/revoke pipeline live**
+> **Status: v0.7.0 — All 6 modules live, 8 official MCP packages, HIVE cloud API, data sovereignty manifesto**
 > `npm install -g cerebrex` — FORGE, TRACE, MEMEX, AUTH, REGISTRY, and HIVE are all working.
 >
 > **Live:** Registry UI → `https://registry.therealcool.site`
 > **Live:** Trace Explorer → `https://registry.therealcool.site/ui/trace`
->
-> **Website: Coming Soon** — `https://therealcool.site`
+> **Live:** Website + Whitepaper → `https://therealcool.site`
 
 ---
 
@@ -282,10 +281,13 @@ cd apps/cli && bun run build
 - [x] Registry backend — Cloudflare Worker + D1 + KV *(v0.3)*
 - [x] HIVE — Multi-agent JWT coordination (init/start/register/status/send) *(v0.3)*
 - [x] Web UI — Registry browser + hosted trace explorer (Worker-embedded) *(v0.4)*
-- [ ] Website — `therealcool.site` *(coming soon)*
+- [x] Website live — `therealcool.site` — whitepaper, manifesto, proof of work *(v0.7)*
+- [x] HIVE cloud API — create/manage hives from anywhere via registry backend *(v0.7)*
+- [x] 8 official MCP packages — memex, hive, fetch, datetime, kvstore, github, nasa, openweathermap *(v0.7)*
+- [x] Token self-service — `POST /v1/auth/tokens` — users can create scoped tokens *(v0.7)*
+- [x] Rate limiting — per-IP + per-token write limits on MEMEX + HIVE *(v0.7)*
 - [ ] Custom domain — `registry.cerebrex.dev` *(next)*
-- [ ] Real registry auth — account registration + token validation *(v0.5)*
-- [ ] Agent test runner — `cerebrex test` with replay + assertions *(v0.5)*
+- [ ] Agent test runner — `cerebrex test` with replay + assertions *(v0.8)*
 - [ ] Enterprise tier + on-prem *(v1.0)*
 
 ---

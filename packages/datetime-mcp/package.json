@@ -1,0 +1,21 @@
+{
+  "name": "@arealcoolco/datetime-mcp",
+  "version": "1.0.0",
+  "description": "CerebreX DATETIME — time, date, and timezone MCP server for AI agents",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "dev": "bun run ./src/index.ts"
+  },
+  "bin": {
+    "datetime-mcp": "./dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  },
+  "keywords": ["mcp", "cerebrex", "datetime", "time", "timezone", "agent", "ai"],
+  "author": "A Real Cool Co.",
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}

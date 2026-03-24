@@ -1,0 +1,21 @@
+{
+  "name": "@arealcoolco/hive-mcp",
+  "version": "1.0.0",
+  "description": "CerebreX HIVE — multi-agent orchestration MCP server",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "dev": "bun run ./src/index.ts"
+  },
+  "bin": {
+    "hive-mcp": "./dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  },
+  "keywords": ["mcp", "cerebrex", "hive", "multi-agent", "orchestration", "agent", "ai"],
+  "author": "A Real Cool Co.",
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}

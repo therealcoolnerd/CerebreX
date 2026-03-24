@@ -1,0 +1,21 @@
+{
+  "name": "@arealcoolco/fetch-mcp",
+  "version": "1.0.0",
+  "description": "CerebreX FETCH — HTTP request MCP server for AI agents",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "dev": "bun run ./src/index.ts"
+  },
+  "bin": {
+    "fetch-mcp": "./dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  },
+  "keywords": ["mcp", "cerebrex", "fetch", "http", "web", "agent", "ai"],
+  "author": "A Real Cool Co.",
+  "license": "MIT",
+  "engines": { "node": ">=18" }
+}
