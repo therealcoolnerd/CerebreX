@@ -125,6 +125,23 @@ authCommand
       token = (answers as { token: string }).token;
     }
 
+    const spinner = (await import('ora')).default('Verifying token with registry...').start();
+    try {
+      const res = await fetch(`${REGISTRY_URL}/v1/auth/me`, {
+        headers: { Authorization: `Bearer ${token.trim()}` },
+      });
+      if (!res.ok) {
+        spinner.fail(chalk.red(`Token verification failed: ${res.statusText}`));
+        console.log(chalk.dim('  Check your token and try again.\n'));
+        process.exit(1);
+      }
+      spinner.succeed(chalk.green('Token verified'));
+    } catch (e) {
+      spinner.fail(chalk.red(`Could not reach registry: ${(e as Error).message}`));
+      console.log(chalk.dim('  Check your network connection and try again.\n'));
+      process.exit(1);
+    }
+
     writeToken(token.trim());
     console.log(chalk.green('  ✅ Logged in successfully'));
     console.log(chalk.dim(`  Credentials saved to: ${CREDENTIALS_FILE}`));
