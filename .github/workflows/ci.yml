@@ -38,4 +38,3 @@ jobs:
 
       - name: Typecheck CLI
         run: cd apps/cli && bun run typecheck
-        continue-on-error: true
