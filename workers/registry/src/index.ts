@@ -168,6 +168,57 @@ export default {
       return new Response(null, { status: 302, headers: { Location: '/#trace' } });
     }
 
+    // ── PWA assets ─────────────────────────────────────────────────────────
+    if (method === 'GET' && pathname === '/manifest.json') {
+      return new Response(JSON.stringify({
+        name: 'CerebreX Registry',
+        short_name: 'CerebreX',
+        description: 'Agent Infrastructure OS — browse packages, explore traces, manage hives',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'any',
+        background_color: '#0a0a0f',
+        theme_color: '#00d4ff',
+        categories: ['developer', 'utilities'],
+        icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+        screenshots: [
+          { src: '/', sizes: '1280x720', type: 'image/png', label: 'Registry browser' },
+        ],
+      }), {
+        headers: {
+          'Content-Type': 'application/manifest+json',
+          'Cache-Control': 'public, max-age=86400',
+          ...corsHeaders(),
+        },
+      });
+    }
+
+    if (method === 'GET' && pathname === '/sw.js') {
+      return new Response(
+        `const CACHE='cerebrex-v1';
+self.addEventListener('install',e=>{
+  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['/'])));
+  self.skipWaiting();
+});
+self.addEventListener('activate',e=>{e.waitUntil(clients.claim());});
+self.addEventListener('fetch',e=>{
+  if(e.request.mode==='navigate'){
+    e.respondWith(fetch(e.request).catch(()=>caches.match('/')));
+  }
+});`,
+        {
+          headers: {
+            'Content-Type': 'application/javascript',
+            'Cache-Control': 'public, max-age=3600',
+          },
+        }
+      );
+    }
+
     // ── Health ─────────────────────────────────────────────────────────────
     if (pathname === '/health' && method === 'GET') {
       return json({ status: 'ok', version: '1.0.0' });
@@ -528,6 +579,12 @@ async function registryUI(env: Env): Promise<string> {
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>CerebreX — agent infrastructure os</title>
+  <link rel="manifest" href="/manifest.json"/>
+  <meta name="theme-color" content="#00d4ff"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="CerebreX"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet"/>
@@ -2010,6 +2067,11 @@ authInit();
 regLoad();
 memexInit();
 hiveInit();
+
+// ── PWA ───────────────────────────────────────────────────────────────────────
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
 </script>
 </body>
 </html>`;

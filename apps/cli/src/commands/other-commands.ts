@@ -308,9 +308,12 @@ Examples:
     try {
       const tarName = `${packageName.replace(/\//g, '-')}-${version}.tgz`;
       const tarPath = path.join(os.tmpdir(), tarName);
-      const { execa } = await import('execa');
+      const { create: tarCreate } = await import('tar');
 
-      await execa('tar', ['-czf', tarPath, '-C', path.dirname(serverDir), path.basename(serverDir)]);
+      await tarCreate(
+        { gzip: true, file: tarPath, cwd: path.dirname(serverDir) },
+        [path.basename(serverDir)]
+      );
 
       spinner.text = 'Uploading to CerebreX Registry...';
 
@@ -576,11 +579,14 @@ export const installCommand = new Command('install')
       const tarPath = path.join(os.tmpdir(), `${packageName.replace(/\//g, '-')}.tgz`);
       fs.writeFileSync(tarPath, tarball);
 
-      const { execa } = await import('execa');
+      const { list: tarList, extract: tarExtract } = await import('tar');
 
       // Zip-slip protection: list entries and reject path traversal
-      const { stdout: listing } = await execa('tar', ['-tzf', tarPath]);
-      const entries = listing.split('\n').filter(Boolean);
+      const entries: string[] = [];
+      await tarList({
+        file: tarPath,
+        onentry: (entry: { path: string }) => entries.push(entry.path),
+      });
       for (const entry of entries) {
         const normalized = path.posix.normalize(entry);
         if (normalized.startsWith('..') || path.isAbsolute(normalized)) {
@@ -589,7 +595,7 @@ export const installCommand = new Command('install')
         }
       }
 
-      await execa('tar', ['-xzf', tarPath, '-C', installDir]);
+      await tarExtract({ file: tarPath, cwd: installDir });
       fs.unlinkSync(tarPath);
 
       const pkgDir = path.join(installDir, path.basename(packageName));

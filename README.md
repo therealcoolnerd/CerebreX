@@ -19,8 +19,8 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.7.2 — HIVE workers live; tasks now actually execute**
-> `npm install -g cerebrex` — FORGE, TRACE, MEMEX, AUTH, REGISTRY, and HIVE are all working.
+> **Status: v0.8.0 — Standalone binaries + PWA; runs on Windows, Linux, Android, Chrome OS**
+> `npm install -g cerebrex` — or download a self-contained binary from [GitHub Releases](https://github.com/arealcoolco/CerebreX/releases) (no Node.js required)
 >
 > **Live:** Registry UI → `https://registry.therealcool.site`
 > **Live:** Trace Explorer → `https://registry.therealcool.site/ui/trace`
@@ -328,7 +328,12 @@ cd apps/cli && bun run build
 - [x] Built-in task handlers — fetch, memex-set, memex-get, echo, noop *(v0.7.2)*
 - [x] Custom handler modules — `--handler ./my-handler.mjs` for domain-specific logic *(v0.7.2)*
 - [x] TRACE + HIVE integration — `--trace-port` + `--trace-session` on workers *(v0.7.2)*
-- [ ] Agent test runner — `cerebrex test` with replay + assertions *(v0.8)*
+- [x] Standalone binaries — `cerebrex-linux-x64`, `cerebrex-linux-arm64`, `cerebrex-windows-x64.exe` attached to every release *(v0.8)*
+- [x] Windows `tar` fix — uses npm `tar` package, no system dependency *(v0.8)*
+- [x] Windows credential security — `icacls` ACL hardening on token file *(v0.8)*
+- [x] Update checker — cached background check, 24h TTL, non-blocking *(v0.8)*
+- [x] PWA — `registry.therealcool.site` installable on Android, Chrome OS, iOS Safari *(v0.8)*
+- [ ] Agent test runner — `cerebrex test` with replay + assertions *(v0.9)*
 - [ ] Custom domain — `registry.cerebrex.dev` *(next)*
 - [ ] Enterprise tier + on-prem *(v1.0)*
 

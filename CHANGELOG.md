@@ -6,6 +6,42 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.8.0] — 2026-03-25
+
+### Standalone Binaries + PWA — Windows, Linux, Android, Chrome OS
+
+#### Standalone Binaries (New)
+- **Self-contained executables** — no Node.js or Bun required on the target machine
+- **`cerebrex-linux-x64`** — Linux x64 (Ubuntu, Debian, Chrome OS Linux container)
+- **`cerebrex-linux-arm64`** — Linux ARM64 (Raspberry Pi, ARM servers)
+- **`cerebrex-windows-x64.exe`** — Windows x64 (Windows 10/11)
+- Built via `bun build --compile` on every GitHub release; attached as release assets automatically
+- npm install (`npm install -g cerebrex`) still works for power users
+
+#### CI — Binary Build Workflow (New)
+- **`build-binaries.yml`** — new GitHub Actions workflow; triggers on every published release
+- Builds all 3 targets in parallel on `ubuntu-latest`
+- Uploads binaries directly to the GitHub release as downloadable assets
+
+#### Windows — Security Fix
+- **Credential file hardening** — `cerebrex auth login` now calls `icacls` on Windows after writing `~/.cerebrex/.credentials` to restrict access to the current user only. Previously, `0o600` Unix permissions were silently ignored on NTFS.
+
+#### Windows — `tar` Fix
+- **No more system `tar` dependency** — `cerebrex publish` and `cerebrex install` now use the `tar` npm package instead of spawning `execa('tar', ...)`. Fixes silent failures on Windows builds where `tar` is not guaranteed to be in PATH.
+
+#### PWA — Android + Chrome OS (New)
+- **`/manifest.json`** — registry Worker now serves a Web App Manifest with name, theme color, display mode, and icon hints
+- **`/sw.js`** — minimal service worker enabling offline fallback and PWA installability
+- **PWA meta tags** — `<link rel="manifest">`, `theme-color`, `apple-mobile-web-app-capable`, and related meta tags added to the registry UI
+- **Service worker registration** — SW registered automatically on page load
+- **Install to Home Screen** — `registry.therealcool.site` is now installable on Android Chrome, Chrome OS, and iOS Safari as a standalone app
+
+#### CLI — Update Checker (New)
+- **Cached update notifications** — CLI checks `registry.npmjs.org` for newer versions in the background; result cached to `~/.cerebrex/update-check.json` (24h TTL) to avoid slowing startup
+- Shows a one-line notice at startup if a newer version is available: `Update available: v0.X.Y → run: npm install -g cerebrex`
+
+---
+
 ## [0.7.2] — 2026-03-24
 
 ### HIVE Worker — Tasks Now Actually Execute

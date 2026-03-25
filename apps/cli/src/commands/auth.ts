@@ -11,6 +11,7 @@ import chalk from 'chalk';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { execFileSync } from 'child_process';
 
 const CREDENTIALS_FILE = path.join(os.homedir(), '.cerebrex', '.credentials');
 
@@ -25,7 +26,17 @@ function readStoredToken(): string | null {
 function writeToken(token: string): void {
   const dir = path.dirname(CREDENTIALS_FILE);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(CREDENTIALS_FILE, token, { mode: 0o600 }); // owner read/write only
+  fs.writeFileSync(CREDENTIALS_FILE, token, { mode: 0o600 }); // owner read/write (Unix/Linux)
+  // Windows: 0o600 is silently ignored on NTFS — harden with icacls
+  if (process.platform === 'win32') {
+    try {
+      execFileSync('icacls', [
+        CREDENTIALS_FILE,
+        '/inheritance:r',
+        '/grant:r', `${process.env['USERNAME'] ?? 'User'}:(F)`,
+      ], { stdio: 'ignore' });
+    } catch { /* icacls not available in all environments — best-effort */ }
+  }
 }
 
 function deleteToken(): void {

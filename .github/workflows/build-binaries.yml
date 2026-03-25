@@ -1,0 +1,58 @@
+name: Build Standalone Binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: build-binaries-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    strategy:
+      matrix:
+        include:
+          - target: linux-x64
+            script: build:linux-x64
+            artifact: cerebrex-linux-x64
+          - target: linux-arm64
+            script: build:linux-arm64
+            artifact: cerebrex-linux-arm64
+          - target: windows-x64
+            script: build:windows-x64
+            artifact: cerebrex-windows-x64.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build workspace packages
+        run: |
+          cd packages/types && bun run build && cd ../..
+          cd packages/core && bun run build && cd ../..
+          cd packages/registry-client && bun run build && cd ../..
+
+      - name: Build ${{ matrix.target }} standalone binary
+        run: cd apps/cli && bun run ${{ matrix.script }}
+
+      - name: Upload binary to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/cli/dist/${{ matrix.artifact }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
