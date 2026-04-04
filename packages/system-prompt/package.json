@@ -1,0 +1,17 @@
+{
+  "name": "@cerebrex/system-prompt",
+  "version": "0.9.0",
+  "description": "CerebreX master system prompt + context loader for Anthropic API integration",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist/"],
+  "scripts": {
+    "build": "tsc --outDir dist --rootDir src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

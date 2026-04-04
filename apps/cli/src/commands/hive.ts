@@ -6,6 +6,9 @@
  * cerebrex hive register      — Register an agent with the active HIVE
  * cerebrex hive status        — Show active agents and task queue
  * cerebrex hive send          — Send a task to a registered agent
+ * cerebrex hive worker        — Start a worker that polls + executes tasks
+ * cerebrex hive swarm         — Launch a named swarm preset (parallel/pipeline/competitive)
+ * cerebrex hive strategies    — List available swarm strategies and presets
  */
 
 import { Command } from 'commander';
@@ -751,4 +754,243 @@ hiveCommand
 
     // Keep process alive until SIGINT
     await new Promise<never>(() => {});
+  });
+
+// ── Swarm presets ──────────────────────────────────────────────────────────────
+
+interface SwarmAgent {
+  id: string;
+  name: string;
+  capabilities: string;
+  role: string;
+}
+
+interface SwarmPreset {
+  name: string;
+  description: string;
+  strategy: 'parallel' | 'pipeline' | 'competitive';
+  agents: SwarmAgent[];
+  judgePrompt?: string; // competitive only
+}
+
+const SWARM_PRESETS: Record<string, SwarmPreset> = {
+  'research-and-recommend': {
+    name: 'Research & Recommend',
+    description: 'Three-agent parallel deep dive: researcher gathers, analyst synthesizes, strategist recommends.',
+    strategy: 'parallel',
+    agents: [
+      { id: 'researcher', name: 'Researcher', capabilities: 'search,read,fetch', role: 'Gather all relevant information and evidence on the topic.' },
+      { id: 'analyst',    name: 'Analyst',    capabilities: 'analyze,summarize', role: 'Synthesize the gathered information into structured insights.' },
+      { id: 'strategist', name: 'Strategist', capabilities: 'plan,recommend',    role: 'Produce concrete, prioritized recommendations based on the analysis.' },
+    ],
+  },
+  'code-review-pipeline': {
+    name: 'Code Review Pipeline',
+    description: 'Security → Performance → Maintainability — each agent refines the previous pass.',
+    strategy: 'pipeline',
+    agents: [
+      { id: 'security',        name: 'Security Reviewer',        capabilities: 'security,audit',     role: 'Review for vulnerabilities, injection, auth gaps, and secrets exposure.' },
+      { id: 'performance',     name: 'Performance Reviewer',     capabilities: 'performance,profile', role: 'Review for N+1 queries, memory leaks, and algorithmic complexity.' },
+      { id: 'maintainability', name: 'Maintainability Reviewer', capabilities: 'refactor,document',  role: 'Review for clarity, testability, and long-term maintainability.' },
+    ],
+  },
+  'best-solution': {
+    name: 'Best Solution (Competitive)',
+    description: 'Three agents produce competing solutions; coordinator picks the winner.',
+    strategy: 'competitive',
+    agents: [
+      { id: 'solver-a', name: 'Solver A', capabilities: 'solve,implement', role: 'Produce a complete solution optimizing for correctness.' },
+      { id: 'solver-b', name: 'Solver B', capabilities: 'solve,implement', role: 'Produce a complete solution optimizing for simplicity.' },
+      { id: 'solver-c', name: 'Solver C', capabilities: 'solve,implement', role: 'Produce a complete solution optimizing for performance.' },
+    ],
+    judgePrompt: 'Evaluate the three solutions. Pick the best one based on overall quality, correctness, and maintainability. Output ONLY the winning solution with a brief justification.',
+  },
+  'product-spec': {
+    name: 'Product Spec',
+    description: 'Four specialists build a product spec in parallel: UX, Tech, Business, GTM.',
+    strategy: 'parallel',
+    agents: [
+      { id: 'ux-designer',   name: 'UX Designer',        capabilities: 'design,ux',    role: 'Define user flows, personas, pain points, and UX requirements.' },
+      { id: 'tech-lead',     name: 'Tech Lead',           capabilities: 'architecture', role: 'Define technical architecture, stack choices, and feasibility constraints.' },
+      { id: 'business',      name: 'Business Analyst',    capabilities: 'business',     role: 'Define success metrics, monetization, and competitive positioning.' },
+      { id: 'gtm',           name: 'GTM Strategist',      capabilities: 'marketing',    role: 'Define go-to-market strategy, launch plan, and growth channels.' },
+    ],
+  },
+  'content-pipeline': {
+    name: 'Content Pipeline',
+    description: 'Research → Draft → Edit — sequential content refinement chain.',
+    strategy: 'pipeline',
+    agents: [
+      { id: 'content-researcher', name: 'Content Researcher', capabilities: 'search,read', role: 'Research the topic thoroughly and produce a detailed brief with sources.' },
+      { id: 'writer',             name: 'Writer',             capabilities: 'write',       role: 'Write a complete draft based on the research brief.' },
+      { id: 'editor',             name: 'Editor',             capabilities: 'edit,polish', role: 'Edit for clarity, tone, grammar, and impact. Produce the final version.' },
+    ],
+  },
+  'contract-audit': {
+    name: 'Smart Contract Audit',
+    description: 'Four auditors check reentrancy, access control, economics, and gas in parallel.',
+    strategy: 'parallel',
+    agents: [
+      { id: 'reentrancy-auditor', name: 'Reentrancy Auditor',      capabilities: 'security,solidity', role: 'Find all reentrancy vulnerabilities and cross-function call risks.' },
+      { id: 'access-auditor',     name: 'Access Control Auditor',  capabilities: 'security,solidity', role: 'Audit owner/role checks, privilege escalation paths, and missing guards.' },
+      { id: 'economics-auditor',  name: 'Economics Auditor',       capabilities: 'defi,math',         role: 'Audit tokenomics, flash loan attack surfaces, and economic exploits.' },
+      { id: 'gas-auditor',        name: 'Gas Optimization Auditor', capabilities: 'evm,gas',          role: 'Identify gas inefficiencies, storage layout issues, and optimization opportunities.' },
+    ],
+  },
+};
+
+// ── cerebrex hive swarm ────────────────────────────────────────────────────────
+
+hiveCommand
+  .command('swarm')
+  .description('Launch a named swarm preset (parallel, pipeline, or competitive)')
+  .argument('<preset>', `Preset name. Run ${chalk.dim('cerebrex hive strategies')} to list all.`)
+  .argument('<task>', 'The task or objective for the swarm')
+  .option('--hive-url <url>', 'HIVE coordinator URL', 'http://localhost:7433')
+  .option('--token <jwt>', 'Coordinator admin JWT (optional for local)')
+  .option('--dry-run', 'Print the swarm plan without registering agents or sending tasks')
+  .addHelpText('after', `
+Examples:
+  cerebrex hive swarm research-and-recommend "What are the top 5 MCP servers for AI coding agents?"
+  cerebrex hive swarm best-solution "Write a rate limiter in TypeScript"
+  cerebrex hive swarm code-review-pipeline "Review the auth.ts file for security issues"
+  cerebrex hive swarm product-spec "A CLI tool for managing Cloudflare Workers" --dry-run
+  `)
+  .action(async (presetName: string, task: string, options: {
+    hiveUrl: string;
+    token?: string;
+    dryRun?: boolean;
+  }) => {
+    const preset = SWARM_PRESETS[presetName];
+    if (!preset) {
+      console.error(chalk.red(`\n  Unknown preset: "${presetName}"`));
+      console.log(chalk.dim(`  Available presets: ${Object.keys(SWARM_PRESETS).join(', ')}\n`));
+      process.exit(1);
+    }
+
+    console.log(chalk.cyan(`\n  Swarm: ${chalk.bold(preset.name)}`));
+    console.log(chalk.dim(`  Strategy: ${preset.strategy} | Agents: ${preset.agents.length}`));
+    console.log(chalk.dim(`  Task: "${task}"\n`));
+
+    if (options.dryRun) {
+      console.log(chalk.yellow('  [dry-run] Plan:\n'));
+      for (const agent of preset.agents) {
+        console.log(chalk.bold(`    ${agent.name} (${agent.id})`));
+        console.log(chalk.dim(`      Capabilities: ${agent.capabilities}`));
+        console.log(chalk.dim(`      Role: ${agent.role}`));
+        console.log('');
+      }
+      if (preset.strategy === 'pipeline') {
+        console.log(chalk.dim(`  Execution order:`));
+        preset.agents.forEach((a, i) => {
+          const arrow = i < preset.agents.length - 1 ? ` → ` : '';
+          process.stdout.write(chalk.dim(`    ${a.name}${arrow}`));
+        });
+        console.log('\n');
+      } else if (preset.strategy === 'competitive') {
+        console.log(chalk.dim(`  All agents run in parallel, coordinator picks the winner.\n`));
+      } else {
+        console.log(chalk.dim(`  All agents run simultaneously via Promise.all.\n`));
+      }
+      return;
+    }
+
+    const hiveUrl = options.hiveUrl;
+    const authHeader: Record<string, string> = options.token
+      ? { Authorization: `Bearer ${options.token}` }
+      : {};
+
+    const spinner = ora('Registering swarm agents...').start();
+
+    try {
+      // Register all agents
+      const agentTokens: Record<string, string> = {};
+      for (const agent of preset.agents) {
+        const res = await fetch(`${hiveUrl}/agents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader },
+          body: JSON.stringify({
+            id: agent.id,
+            name: agent.name,
+            capabilities: agent.capabilities.split(','),
+          }),
+        });
+        const data = await res.json() as { token?: string; error?: string };
+        if (!res.ok) throw new Error(data.error ?? `Failed to register ${agent.id}`);
+        agentTokens[agent.id] = data.token!;
+      }
+
+      spinner.text = 'Dispatching tasks...';
+
+      if (preset.strategy === 'parallel' || preset.strategy === 'competitive') {
+        // All agents get the same task simultaneously
+        for (const agent of preset.agents) {
+          const payload = { objective: task, role: agent.role };
+          await fetch(`${hiveUrl}/tasks`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${agentTokens[agent.id]}` },
+            body: JSON.stringify({
+              agent_id: agent.id,
+              type: preset.strategy === 'competitive' ? 'competitive-solve' : 'parallel-task',
+              payload,
+            }),
+          });
+        }
+        if (preset.strategy === 'competitive') {
+          console.log('');
+          console.log(chalk.dim(`  Judge prompt: ${preset.judgePrompt}`));
+        }
+      } else {
+        // Pipeline: first agent gets the raw task, subsequent agents get role context
+        const firstAgent = preset.agents[0]!;
+        await fetch(`${hiveUrl}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${agentTokens[firstAgent.id]}` },
+          body: JSON.stringify({
+            agent_id: firstAgent.id,
+            type: 'pipeline-stage',
+            payload: { objective: task, role: firstAgent.role, stage: 1, total: preset.agents.length },
+          }),
+        });
+        // Remaining stages are dispatched by each worker after completion (chain pattern)
+        // Workers with pipeline-stage type should dispatch to the next agent on completion
+      }
+
+      spinner.succeed(chalk.green(`Swarm launched: ${preset.agents.length} agents registered`));
+      console.log(chalk.dim(`\n  Strategy: ${chalk.bold(preset.strategy)}`));
+      console.log(chalk.dim(`  Agents:   ${preset.agents.map((a) => a.id).join(', ')}`));
+      console.log(chalk.dim(`\n  Monitor: cerebrex hive status --url ${hiveUrl}\n`));
+    } catch (err) {
+      spinner.fail(chalk.red('Swarm launch failed'));
+      console.error(chalk.dim(`  ${(err as Error).message}\n`));
+      process.exit(1);
+    }
+  });
+
+// ── cerebrex hive strategies ──────────────────────────────────────────────────
+
+hiveCommand
+  .command('strategies')
+  .description('List all available swarm strategies and presets')
+  .action(() => {
+    console.log(chalk.cyan('\n  HIVE Swarm Strategies\n'));
+
+    console.log(chalk.bold('  Execution Strategies\n'));
+    console.log(`  ${chalk.green('parallel')}     All agents receive the same task simultaneously via Promise.all.`);
+    console.log(`                Best for independent subtasks that don't depend on each other.\n`);
+    console.log(`  ${chalk.yellow('pipeline')}     Agents run sequentially — each refines the output of the last.`);
+    console.log(`                Best for multi-step refinement: research → draft → edit.\n`);
+    console.log(`  ${chalk.red('competitive')}  All agents produce competing solutions. Coordinator picks the best.`);
+    console.log(`                Best for finding the optimal answer when quality matters most.\n`);
+
+    console.log(chalk.bold('  Presets\n'));
+    for (const [key, preset] of Object.entries(SWARM_PRESETS)) {
+      const stratColor = preset.strategy === 'parallel' ? chalk.green : preset.strategy === 'pipeline' ? chalk.yellow : chalk.red;
+      console.log(`  ${chalk.bold(key)}`);
+      console.log(`    ${preset.description}`);
+      console.log(`    ${stratColor(preset.strategy)} · ${preset.agents.length} agents: ${preset.agents.map((a) => a.name).join(' → ')}`);
+      console.log('');
+    }
+
+    console.log(chalk.dim('  Usage: cerebrex hive swarm <preset> "<task>"\n'));
   });

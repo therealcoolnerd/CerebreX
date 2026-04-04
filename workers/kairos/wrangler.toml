@@ -1,0 +1,30 @@
+name = "cerebrex-kairos"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cerebrex-kairos"
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+
+[[durable_objects.bindings]]
+name = "KAIROS"
+class_name = "KairosDaemon"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["KairosDaemon"]
+
+[queues]
+producers = [{ queue = "cerebrex-tasks", binding = "TASK_QUEUE" }]
+consumers = [{ queue = "cerebrex-tasks", max_batch_size = 10, max_batch_timeout = 5 }]
+
+[vars]
+ENVIRONMENT = "production"
+TICK_INTERVAL_MS = "300000"
+TICK_BUDGET_MS   = "15000"
+
+# Secrets (set via: wrangler secret put ...)
+# CEREBREX_API_KEY  — shared API key for CLI + agent access
+# ANTHROPIC_API_KEY — required for KAIROS tick decisions + ULTRAPLAN

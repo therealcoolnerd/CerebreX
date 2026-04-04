@@ -6,6 +6,59 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.9.0] — 2026-04-04
+
+### Claude Architecture Patterns — MEMEX v2, KAIROS Daemon, HIVE Swarms, Risk Gate
+
+Applies architectural patterns from the Claude Code system to CerebreX's infrastructure:
+three-layer agent memory, autonomous background daemons, fork-join swarm coordination,
+and a risk classification gate on every agent action.
+
+#### MEMEX v2 — Three-Layer Cloud Memory (`workers/memex/`) (New Worker)
+- **Three-tier architecture:** KV pointer index (always hot, ≤200 lines) + R2 topic files (on-demand) + D1 transcripts (search-only, append-only)
+- **`GET/POST /v1/agents/:id/memory/index`** — KV pointer index read/write
+- **`GET/POST/DELETE /v1/agents/:id/memory/topics/:topic`** — per-topic R2 knowledge files
+- **`POST /v1/agents/:id/memory/transcripts`** — append session history to D1
+- **`GET /v1/agents/:id/memory/transcripts/search?q=`** — full-text search across session history
+- **`POST /v1/agents/:id/memory/context`** — assemble all three layers into a single system prompt injection
+- **`POST /v1/agents/:id/memory/consolidate`** — manual autoDream trigger
+- **autoDream cron (03:00 UTC daily)** — four-phase memory consolidation: orient → gather (last 50 transcripts) → consolidate (Claude synthesizes, removes contradictions) → prune (200 line / 25KB hard limits)
+- **CI deploy:** `deploy-memex.yml` — auto-deploys on push to `workers/memex/**`
+
+#### KAIROS — Autonomous Agent Daemon + ULTRAPLAN (`workers/kairos/`) (New Worker)
+- **`KairosDaemon` Durable Object** — 5-minute alarm-based tick loop; Claude decides each tick whether to act or stay quiet (15-second budget enforced)
+- **Append-only daemon log** — every tick recorded to D1; agents cannot delete their own history
+- **`POST /v1/agents/:id/daemon/start|stop`** — start/stop the daemon for any agent
+- **`GET /v1/agents/:id/daemon/log`** — full immutable tick history
+- **`POST /v1/agents/:id/tasks`** — queue proactive tasks to the D1 task table
+- **ULTRAPLAN:** `POST /v1/ultraplan { goal }` → Opus produces a comprehensive plan (summary, tasks, risks, success criteria) → `POST /v1/ultraplan/:id/approve` queues all tasks simultaneously
+- **Built-in task handlers:** noop, echo, fetch, kairos-action
+- **CI deploy:** `deploy-kairos.yml` — auto-deploys on push to `workers/kairos/**`
+
+#### AUTH — Risk Classification Gate (New)
+- **`apps/cli/src/core/auth/risk-gate.ts`** — standalone utility, no external deps
+- LOW risk: read, search, memex-get, status, list → always allowed
+- MEDIUM risk: fetch, write, memex-set, configure → allowed by default, logged
+- HIGH risk: delete, deploy, publish, send, daemon operations → blocked unless `--allow-high-risk`
+- Evaluation order: Deny → Ask → Allow
+- Denial reason surfaced to caller so the model can adjust its plan
+
+#### HIVE — Swarm Strategies + Presets (New Commands)
+- **`cerebrex hive swarm <preset> "<task>"`** — launch a named multi-agent swarm
+- **`cerebrex hive strategies`** — list all strategies and presets with descriptions
+- **Three execution strategies:**
+  - `parallel` — all agents receive same task via Promise.all (best for independent subtasks)
+  - `pipeline` — sequential refinement chain (best for research → draft → edit)
+  - `competitive` — agents race, coordinator picks winner (best for finding optimal answer)
+- **6 built-in presets:** `research-and-recommend`, `code-review-pipeline`, `best-solution`, `product-spec`, `content-pipeline`, `contract-audit`
+
+#### `@cerebrex/system-prompt` Package (New)
+- **`CEREBREX_SYSTEM_PROMPT`** — 100+ line master system prompt covering all 6 modules + KAIROS + three-layer memory + risk gate + tech stack + operating rules
+- **`buildSystemPrompt(opts)`** — assembles static prompt + live MEMEX context injection
+- **`cerebrexMessage(opts)`** — convenience wrapper returning `messages.create` params for the Anthropic SDK
+
+---
+
 ## [0.8.0] — 2026-03-25
 
 ### Standalone Binaries + PWA — Windows, Linux, Android, Chrome OS

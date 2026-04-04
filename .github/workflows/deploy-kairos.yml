@@ -1,0 +1,36 @@
+name: Deploy KAIROS Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'workers/kairos/**'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-kairos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy cerebrex-kairos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: cd workers/kairos && bun install --frozen-lockfile 2>/dev/null || true
+
+      - name: Deploy KAIROS Worker
+        run: cd workers/kairos && bunx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

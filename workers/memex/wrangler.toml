@@ -1,0 +1,27 @@
+name = "cerebrex-memex"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cerebrex-memex"
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+
+[[kv_namespaces]]
+binding = "MEMEX_INDEX"
+id = "REPLACE_WITH_YOUR_KV_ID"
+
+[[r2_buckets]]
+binding = "MEMEX_TOPICS"
+bucket_name = "cerebrex-memex-topics"
+
+[triggers]
+crons = ["0 3 * * *"]
+
+[vars]
+ENVIRONMENT = "production"
+
+# Secrets (set via: wrangler secret put CEREBREX_API_KEY)
+# CEREBREX_API_KEY  — shared API key for CLI + agent access
+# ANTHROPIC_API_KEY — required for autoDream consolidation

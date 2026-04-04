@@ -19,7 +19,7 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.8.0 — Standalone binaries + PWA; runs on Windows, Linux, Android, Chrome OS**
+> **Status: v0.9.0 — Three-layer memory, KAIROS daemon, HIVE swarms, risk gate**
 > `npm install -g cerebrex` — or download a self-contained binary from [GitHub Releases](https://github.com/arealcoolco/CerebreX/releases) (no Node.js required)
 >
 > **Live:** Registry UI → `https://registry.therealcool.site`
@@ -329,12 +329,17 @@ cd apps/cli && bun run build
 - [x] Custom handler modules — `--handler ./my-handler.mjs` for domain-specific logic *(v0.7.2)*
 - [x] TRACE + HIVE integration — `--trace-port` + `--trace-session` on workers *(v0.7.2)*
 - [x] Standalone binaries — `cerebrex-linux-x64`, `cerebrex-linux-arm64`, `cerebrex-windows-x64.exe` attached to every release *(v0.8)*
-- [x] Windows `tar` fix — uses npm `tar` package, no system dependency *(v0.8)*
-- [x] Windows credential security — `icacls` ACL hardening on token file *(v0.8)*
-- [x] Update checker — cached background check, 24h TTL, non-blocking *(v0.8)*
+- [x] Windows `tar` fix + credential `icacls` hardening *(v0.8)*
+- [x] Update checker — cached background check, 24h TTL *(v0.8)*
 - [x] PWA — `registry.therealcool.site` installable on Android, Chrome OS, iOS Safari *(v0.8)*
-- [ ] Agent test runner — `cerebrex test` with replay + assertions *(v0.9)*
-- [ ] Custom domain — `registry.cerebrex.dev` *(next)*
+- [x] MEMEX v2 — three-layer cloud memory (KV + R2 + D1) + autoDream nightly consolidation *(v0.9)*
+- [x] KAIROS — autonomous agent daemon (Durable Objects, 5-min tick loop, append-only log) *(v0.9)*
+- [x] ULTRAPLAN — Opus deep-thinking plan → human approval → parallel task execution *(v0.9)*
+- [x] AUTH risk gate — LOW/MEDIUM/HIGH classification on every agent action *(v0.9)*
+- [x] HIVE swarm strategies — parallel, pipeline, competitive + 6 built-in presets *(v0.9)*
+- [x] `@cerebrex/system-prompt` — master system prompt package + live MEMEX context loader *(v0.9)*
+- [ ] Agent test runner — `cerebrex test` with replay + assertions *(v1.0)*
+- [ ] Custom domain *(next)*
 - [ ] Enterprise tier + on-prem *(v1.0)*
 
 ---
