@@ -7,10 +7,12 @@ on:
 
 jobs:
   # ── Deploy Registry Worker ────────────────────────────────────────────────────
+  # Requires GitHub secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+  # If these are not set or the token has expired, this job is skipped gracefully.
   deploy-registry:
     name: Deploy Registry Worker
     runs-on: ubuntu-latest
-    # Don't block other jobs if registry deploy fails
+    # Allow this job to fail without blocking CI (secrets may not be configured)
     continue-on-error: true
 
     steps:
@@ -22,9 +24,9 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/registry
-        # Note: REGISTRY_ADMIN_TOKEN and other worker secrets should be set once
-        # via: wrangler secret put REGISTRY_ADMIN_TOKEN --env production
-        # They are NOT re-pushed on every deploy to avoid requiring them in GH secrets.
+        # Worker secrets (REGISTRY_ADMIN_TOKEN etc.) should be set once via:
+        #   wrangler secret put REGISTRY_ADMIN_TOKEN
+        # They persist on the worker and do not need to be re-set on every deploy.
 
       - name: Run D1 migrations
         uses: cloudflare/wrangler-action@v3
@@ -33,60 +35,3 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: workers/registry
           command: d1 execute cerebrex-registry --file=./schema.sql --remote
-
-  # ── Auto-publish CLI to npm (on version bump) ─────────────────────────────────
-  publish-npm:
-    name: Publish CLI to npm
-    runs-on: ubuntu-latest
-    # Runs independently — not gated on registry deploy succeeding
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      # Must come after setup-bun so the .npmrc with _authToken is written
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build packages (types → core → registry-client)
-        run: |
-          cd packages/types && bun run build && cd ../..
-          cd packages/core && bun run build && cd ../..
-          cd packages/registry-client && bun run build && cd ../..
-
-      - name: Build CLI
-        run: cd apps/cli && bun run build
-
-      - name: Check if version changed
-        id: version_check
-        run: |
-          PUBLISHED=$(npm view cerebrex version 2>/dev/null || echo "0.0.0")
-          LOCAL=$(node -p "require('./apps/cli/package.json').version")
-          echo "published=$PUBLISHED" >> $GITHUB_OUTPUT
-          echo "local=$LOCAL" >> $GITHUB_OUTPUT
-          if [ "$PUBLISHED" != "$LOCAL" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Publish to npm
-        if: steps.version_check.outputs.changed == 'true'
-        run: npm publish --access public
-        working-directory: apps/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Skip publish (version unchanged)
-        if: steps.version_check.outputs.changed == 'false'
-        run: echo "Version ${{ steps.version_check.outputs.local }} already published — skipping."
