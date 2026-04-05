@@ -1129,6 +1129,8 @@ async function registryUI(env: Env): Promise<string> {
     <a href="#auth">[auth]</a>
     <a href="#registry">[registry]</a>
     <a href="#hive">[hive]</a>
+    <a href="#kairos">[kairos]</a>
+    <a href="#ultraplan">[ultraplan]</a>
     <a href="https://github.com/arealcoolco/CerebreX" target="_blank" class="nav-gh">[github]</a>
   </div>
 </nav>
@@ -1142,14 +1144,16 @@ async function registryUI(env: Env): Promise<string> {
  ██║     ██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗ ██╔██╗
  ╚██████╗███████╗██║  ██║███████╗██████╔╝██║  ██║██╔╝ ██╗
   ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝</pre>
-  <div class="hero-sub">the agent infrastructure os</div>
+  <div class="hero-sub">the agent infrastructure os — v0.9.1 — 8 modules live</div>
   <div class="hero-pills">
     <a class="hero-pill live" href="#forge">forge</a>
     <a class="hero-pill live" href="#trace">trace</a>
-    <a class="hero-pill" href="#memex">memex</a>
+    <a class="hero-pill live" href="#memex">memex</a>
     <a class="hero-pill live" href="#auth">auth</a>
     <a class="hero-pill live" href="#registry">registry</a>
-    <a class="hero-pill" href="#hive">hive</a>
+    <a class="hero-pill live" href="#hive">hive</a>
+    <a class="hero-pill live" href="#kairos">kairos</a>
+    <a class="hero-pill live" href="#ultraplan">ultraplan</a>
   </div>
 </section>
 
@@ -1237,7 +1241,7 @@ async function registryUI(env: Env): Promise<string> {
     <span class="module-title">MEMEX</span>
     <span class="module-badge live">live</span>
   </div>
-  <div class="module-desc">persistent cloud memory for agents. store, recall, and forget key-value memories across sessions, namespaces, and agent identities.</div>
+  <div class="module-desc">three-layer persistent memory for agents. KV index (≤25KB, sub-ms reads) → R2 topic blobs (≤512KB) → D1 append-only transcripts (≤1MB). nightly autoDream consolidation via Claude compresses raw history into structured topics automatically.</div>
 
   <!-- install -->
   <div style="margin:2rem 0 2.5rem">
@@ -1424,7 +1428,7 @@ async function registryUI(env: Env): Promise<string> {
     <span class="module-title">HIVE</span>
     <span class="module-badge">live</span>
   </div>
-  <div class="module-desc">multi-agent orchestration mesh. spin up agent clusters, route tasks, share memory and tools — all via a single MCP-native control plane.</div>
+  <div class="module-desc">multi-agent swarm orchestration with three execution strategies: parallel (all agents simultaneously), pipeline (output feeds next), competitive (fastest wins). six built-in presets. every task passes through the risk gate — LOW/MEDIUM/HIGH classification enforced before execution. nothing runs without your consent.</div>
 
   <div id="hive-auth-gate" style="margin-top:2rem;padding:2rem;border:1px solid rgba(255,255,255,0.1);text-align:center">
     <div style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin-bottom:0.75rem">sign in via the AUTH module above to manage your hives</div>
@@ -1454,7 +1458,7 @@ async function registryUI(env: Env): Promise<string> {
       </div>
       <div style="margin-bottom:0.75rem">
         <div style="font-size:0.65rem;color:rgba(255,255,255,0.4);margin-bottom:0.3rem;letter-spacing:0.1em">CONFIG (JSON)</div>
-        <textarea id="hv-new-config" rows="8" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:0.75rem;resize:vertical">{"agents":[],"routing":"sequential","shared_memory":true}</textarea>
+        <textarea id="hv-new-config" rows="8" style="width:100%;box-sizing:border-box;font-family:inherit;font-size:0.75rem;resize:vertical">{"agents":[],"strategy":"parallel","shared_memory":true,"risk_policy":{"allowHighRisk":false,"allowMediumRisk":true}}</textarea>
       </div>
       <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
         <button id="hv-create-btn" onclick="hiveCreate()" style="background:white;color:black;border:none;font-family:inherit;font-size:0.75rem;letter-spacing:0.1em;padding:0.5rem 1.5rem;cursor:pointer;text-transform:uppercase">create &#x2192;</button>
@@ -1508,10 +1512,84 @@ async function registryUI(env: Env): Promise<string> {
 </div>
 </section>
 
+<!-- 07 KAIROS -->
+<section id="kairos" style="border-bottom:1px solid rgba(255,255,255,0.1)">
+<div class="module-section" style="max-width:1100px;margin:0 auto;padding:80px 32px">
+  <div class="module-header">
+    <span class="module-num">07</span>
+    <span class="module-title">KAIROS</span>
+    <span class="module-badge live">live</span>
+  </div>
+  <div class="module-desc">autonomous background daemon built on Cloudflare Durable Objects. runs a 5-minute tick loop — continuously checking tasks, monitoring conditions, and taking action without being asked. exponential backoff on errors (1min → 30min cap). every decision written to an append-only D1 audit log.</div>
+
+  <div style="margin:2rem 0 2.5rem">
+    <div style="font-size:0.65rem;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:1rem">register a daemon</div>
+    <div style="display:flex;flex-direction:column;gap:0.5rem">
+      <div style="display:flex;gap:0;border:1px solid rgba(255,255,255,0.2)">
+        <code style="flex:1;padding:0.75rem 1rem;font-size:0.82rem;color:rgba(255,255,255,0.8)">cerebrex kairos daemon register --agent-id my-agent --goal "Monitor repo activity"</code>
+        <button onclick="copyText('cerebrex kairos daemon register --agent-id my-agent --goal &quot;Monitor repo activity&quot;', this)" style="padding:0.75rem 1.25rem;background:rgba(255,255,255,0.08);border:none;border-left:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.6);font-family:inherit;font-size:0.75rem;cursor:pointer;letter-spacing:0.1em">copy</button>
+      </div>
+      <div style="display:flex;gap:0;border:1px solid rgba(255,255,255,0.1)">
+        <code style="flex:1;padding:0.75rem 1rem;font-size:0.82rem;color:rgba(255,255,255,0.5)">cerebrex kairos task submit --agent-id my-agent --type "data_sync" --payload '{}'</code>
+        <button onclick="copyText('cerebrex kairos task submit --agent-id my-agent --type &quot;data_sync&quot; --payload \'{}\'', this)" style="padding:0.75rem 1.25rem;background:rgba(255,255,255,0.04);border:none;border-left:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);font-family:inherit;font-size:0.75rem;cursor:pointer;letter-spacing:0.1em">copy</button>
+      </div>
+      <div style="display:flex;gap:0;border:1px solid rgba(255,255,255,0.1)">
+        <code style="flex:1;padding:0.75rem 1rem;font-size:0.82rem;color:rgba(255,255,255,0.5)">cerebrex kairos log --agent-id my-agent --limit 20</code>
+        <button onclick="copyText('cerebrex kairos log --agent-id my-agent --limit 20', this)" style="padding:0.75rem 1.25rem;background:rgba(255,255,255,0.04);border:none;border-left:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);font-family:inherit;font-size:0.75rem;cursor:pointer;letter-spacing:0.1em">copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="feature-list">
+    <div class="feature-item">5-minute tick loop via Durable Object alarm — no polling, no cron, always on</div>
+    <div class="feature-item">exponential backoff on errors — 1min → 2 → 4 → up to 30min cap, resets on success</div>
+    <div class="feature-item">append-only D1 audit log — every decision, reasoning, and action persisted</div>
+    <div class="feature-item">JSON-validated tick responses — malformed output is rejected before acting</div>
+    <div class="feature-item">50KB goal size limit — prevents runaway context injection</div>
+    <div class="feature-item">strict agentId validation — alphanumeric format enforced, injection blocked</div>
+  </div>
+</div>
+</section>
+
+<!-- 08 ULTRAPLAN -->
+<section id="ultraplan" style="border-bottom:1px solid rgba(255,255,255,0.1)">
+<div class="module-section" style="max-width:1100px;margin:0 auto;padding:80px 32px">
+  <div class="module-header">
+    <span class="module-num">08</span>
+    <span class="module-title">ULTRAPLAN</span>
+    <span class="module-badge live">live</span>
+  </div>
+  <div class="module-desc">Opus-powered long-range planning with human-in-the-loop approval. Claude Opus decomposes your goal into a structured execution plan → you review and approve → HIVE executes all subtasks in parallel. goals capped at 50KB. every subtask inherits HIVE's risk gate. full audit trail in D1.</div>
+
+  <div style="margin:2rem 0 2.5rem">
+    <div style="font-size:0.65rem;letter-spacing:0.2em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:1rem">generate a plan → approve → execute</div>
+    <div style="display:flex;flex-direction:column;gap:0.5rem">
+      <div style="display:flex;gap:0;border:1px solid rgba(255,255,255,0.2)">
+        <code style="flex:1;padding:0.75rem 1rem;font-size:0.82rem;color:rgba(255,255,255,0.8)">cerebrex ultraplan "Build a REST API with auth, docs, and tests"</code>
+        <button onclick="copyText('cerebrex ultraplan &quot;Build a REST API with auth, docs, and tests&quot;', this)" style="padding:0.75rem 1.25rem;background:rgba(255,255,255,0.08);border:none;border-left:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.6);font-family:inherit;font-size:0.75rem;cursor:pointer;letter-spacing:0.1em">copy</button>
+      </div>
+      <div style="display:flex;gap:0;border:1px solid rgba(255,255,255,0.1)">
+        <code style="flex:1;padding:0.75rem 1rem;font-size:0.82rem;color:rgba(255,255,255,0.5)">cerebrex ultraplan execute --plan-id &lt;id&gt; --approve</code>
+        <button onclick="copyText('cerebrex ultraplan execute --plan-id <id> --approve', this)" style="padding:0.75rem 1.25rem;background:rgba(255,255,255,0.04);border:none;border-left:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);font-family:inherit;font-size:0.75rem;cursor:pointer;letter-spacing:0.1em">copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="feature-list">
+    <div class="feature-item">Claude Opus decomposes complex goals into structured, executable subtask trees</div>
+    <div class="feature-item">human approval gate — the plan requires explicit confirmation before any execution begins</div>
+    <div class="feature-item">parallel HIVE execution — approved tasks fan out across the swarm simultaneously</div>
+    <div class="feature-item">50KB goal limit — enforced at API level, prevents context injection</div>
+    <div class="feature-item">risk gate inheritance — every subtask passes through HIVE's LOW/MEDIUM/HIGH classification</div>
+    <div class="feature-item">full auditability — plan, approval decision, and execution results all logged to D1</div>
+  </div>
+</div>
+</section>
+
 <!-- FOOTER -->
 <footer>
-  <div>cerebrex &mdash; a real cool co. &mdash; registry.therealcool.site</div>
-  <div style="margin-top:10px;display:flex;justify-content:center;gap:20px">
+  <div>cerebrex v0.9.1 &mdash; a real cool co. &mdash; registry.therealcool.site</div>
+  <div style="margin-top:10px;display:flex;justify-content:center;gap:20px;flex-wrap:wrap">
     <a href="https://github.com/arealcoolco/CerebreX" target="_blank">github</a>
     <a href="https://www.npmjs.com/package/cerebrex" target="_blank">npm</a>
     <a href="/v1/packages" target="_blank">api</a>
@@ -1521,6 +1599,8 @@ async function registryUI(env: Env): Promise<string> {
     <a href="#auth">auth</a>
     <a href="#registry">registry</a>
     <a href="#hive">hive</a>
+    <a href="#kairos">kairos</a>
+    <a href="#ultraplan">ultraplan</a>
   </div>
 </footer>
 
