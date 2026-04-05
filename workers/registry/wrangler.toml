@@ -10,11 +10,11 @@ database_id = "ee2cdb5a-a3c7-4973-b03f-6a27ed009d88"
 
 [[kv_namespaces]]
 binding = "TARBALLS"
-id = "89ca3afce7ef46e38be3352ca293f3b5"
+id = "6a3a463616354616ac910d40235a9b95"
 
 [[kv_namespaces]]
 binding = "RATE_LIMITS"
-id = "0fb44247dab04c06b6efca31b3fc2651"
+id = "6bd3fa7800f3448695d23f2d782f6186"
 
 [vars]
 ENVIRONMENT = "production"
