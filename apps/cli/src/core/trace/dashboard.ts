@@ -7,7 +7,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import chalk from 'chalk';
 
 // Inline dashboard HTML — embedded at build time so the CLI is self-contained.
@@ -227,21 +227,24 @@ export async function openTraceInBrowser(tracePath: string, sessionId: string): 
     JSON.stringify(traceData)
   );
 
-  // Write to a temp file
-  const tmpFile = path.join(os.tmpdir(), `cerebrex-trace-${sessionId}.html`);
+  // Sanitize sessionId before embedding in the file path — prevents shell injection
+  // if a malicious value were ever passed through (e.g. from a crafted trace file).
+  const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+  const tmpFile = path.join(os.tmpdir(), `cerebrex-trace-${safeId}.html`);
   fs.writeFileSync(tmpFile, html);
-
-  // Open in default browser
-  const openCmd = process.platform === 'win32'
-    ? `start "" "${tmpFile}"`
-    : process.platform === 'darwin'
-    ? `open "${tmpFile}"`
-    : `xdg-open "${tmpFile}"`;
 
   console.log(chalk.cyan(`\n  🌐 Opening trace in browser...\n`));
   console.log(chalk.dim(`  File: ${tmpFile}\n`));
 
+  // Use execFile (no shell interpolation) — passes tmpFile as a direct argument,
+  // not as part of a shell string. Prevents command injection via path characters.
   await new Promise<void>((resolve) => {
-    exec(openCmd, () => resolve());
+    if (process.platform === 'win32') {
+      execFile('cmd', ['/c', 'start', '', tmpFile], () => resolve());
+    } else if (process.platform === 'darwin') {
+      execFile('open', [tmpFile], () => resolve());
+    } else {
+      execFile('xdg-open', [tmpFile], () => resolve());
+    }
   });
 }

@@ -75,6 +75,20 @@ async function hashBytes(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** Constant-time string comparison — prevents timing oracle attacks on admin tokens. */
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const aBuf = enc.encode(a);
+  const bBuf = enc.encode(b);
+  const maxLen = Math.max(aBuf.length, bBuf.length);
+  const aPad = new Uint8Array(maxLen);
+  const bPad = new Uint8Array(maxLen);
+  aPad.set(aBuf); bPad.set(bBuf);
+  let diff = aBuf.length ^ bBuf.length;
+  for (let i = 0; i < maxLen; i++) diff |= aPad[i]! ^ bPad[i]!;
+  return diff === 0;
+}
+
 // ── Semver helpers ────────────────────────────────────────────────────────────
 
 function semverParse(v: string): [number, number, number] {
@@ -2639,7 +2653,7 @@ async function handleList(request: Request, env: Env, params: URLSearchParams): 
 async function handleAuthRegister(request: Request, env: Env): Promise<Response> {
   const token = getToken(request);
   if (!token) return err('Authorization required', 401);
-  if (!env.REGISTRY_ADMIN_TOKEN || token !== env.REGISTRY_ADMIN_TOKEN) {
+  if (!env.REGISTRY_ADMIN_TOKEN || !timingSafeEqual(token, env.REGISTRY_ADMIN_TOKEN)) {
     return err('Invalid admin token', 403);
   }
 
@@ -3024,7 +3038,7 @@ function parsePackageRow(row: Record<string, unknown>) {
 }
 
 async function isAdmin(owner: string, token: string, env: Env): Promise<boolean> {
-  if (env.REGISTRY_ADMIN_TOKEN && token === env.REGISTRY_ADMIN_TOKEN) return true;
+  if (env.REGISTRY_ADMIN_TOKEN && timingSafeEqual(token, env.REGISTRY_ADMIN_TOKEN)) return true;
   const user = await env.DB.prepare(
     'SELECT role FROM users WHERE username = ?'
   ).bind(owner).first<{ role: string }>();
