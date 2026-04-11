@@ -7,13 +7,14 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![CI](https://github.com/arealcoolco/CerebreX/actions/workflows/ci.yml/badge.svg)](https://github.com/arealcoolco/CerebreX/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/cerebrex.svg)](https://www.npmjs.com/package/cerebrex)
+[![Benchmarks](https://img.shields.io/badge/benchmarks-v0.9.2-brightgreen)](./BENCHMARKS.md)
 [![GitHub Stars](https://img.shields.io/github/stars/arealcoolco/CerebreX?style=social)](https://github.com/arealcoolco/CerebreX)
 [![Issues](https://img.shields.io/github/issues/arealcoolco/CerebreX)](https://github.com/arealcoolco/CerebreX/issues)
 
-**Build. Test. Remember. Coordinate. Publish.**
+**Build. Test. Remember. Coordinate. Publish.**  
 The complete infrastructure layer for AI agents — in one CLI.
 
-[🚀 Quickstart](#-quickstart) · [🗂 Structure](#-monorepo-structure) · [🛣 Roadmap](#-roadmap) · [🐛 Issues](https://github.com/arealcoolco/CerebreX/issues)
+[Quickstart](#-quickstart) · [Why CerebreX](#-why-cerebrex-vs-langchain-crewai-autogen) · [Benchmarks](./BENCHMARKS.md) · [Modules](#what-is-cerebrex) · [Python SDK](#-python-sdk) · [Roadmap](#-roadmap)
 
 </div>
 
@@ -44,6 +45,56 @@ Eight modules. One CLI. One registry. One coordination layer.
 | 🐝 **HIVE** | `cerebrex hive` | ✅ Working | Multi-agent coordination — JWT auth, swarm strategies, risk-gated workers |
 | ⏰ **KAIROS** | *(cloud worker)* | ✅ Working | Autonomous agent daemon — Durable Objects, 5-min tick loop, append-only log |
 | 📋 **ULTRAPLAN** | *(cloud API)* | ✅ Working | Opus deep-thinking plan → human approval → parallel task execution |
+
+---
+
+## Why CerebreX vs LangChain, CrewAI, AutoGen
+
+> Full benchmark methodology, raw numbers, and detailed comparisons: [**BENCHMARKS.md**](./BENCHMARKS.md)
+
+### Measured Performance (v0.9.2)
+
+```
+FORGE  parse + scaffold 20-endpoint OpenAPI spec   →   0.12ms  median
+MEMEX  read agent memory index                     →   0.01ms  median
+MEMEX  assemble 3-layer context                    →   0.03ms  median
+HIVE   classify + route 10-task swarm              →   0.09ms  median
+TRACE  record tool-call step                       →  <0.01ms  median  (27,435 ops/s)
+All benchmarks                                     →  100% success rate
+```
+
+### Features No Other Framework Has
+
+| What You Need | CerebreX | LangChain | CrewAI | AutoGen |
+|---------------|:--------:|:---------:|:------:|:-------:|
+| Generate MCP servers from any OpenAPI spec | **FORGE** | ❌ | ❌ | ❌ |
+| Three-layer cloud memory (KV + R2 + D1) | **MEMEX** | ⚠️ Paid | ❌ | ❌ |
+| Nightly AI memory consolidation | **autoDream** | ❌ | ❌ | ❌ |
+| Autonomous background daemon | **KAIROS** | ❌ | ❌ | ❌ |
+| Risk gate on every agent action | **HIVE** | ❌ | ❌ | ❌ |
+| Opus plan + human approval before execution | **ULTRAPLAN** | ❌ | ❌ | ❌ |
+| Built-in MCP package registry | **REGISTRY** | ❌ | ❌ | ❌ |
+| Built-in observability (free, local) | **TRACE** | ⚠️ Paid | ❌ | ❌ |
+| Single CLI for all of the above | `cerebrex` | ❌ | ❌ | ❌ |
+
+### Startup Time
+
+| | CerebreX | LangChain | CrewAI | AutoGen |
+|-|:--------:|:---------:|:------:|:-------:|
+| CLI / module cold start | **~80ms** | ~2,100ms | ~3,400ms | ~1,800ms |
+
+> CerebreX starts **26x faster** than LangChain and **42x faster** than CrewAI.  
+> Bun runtime + single bundled file vs Python's large import tree.
+
+### What the Others Don't Have
+
+**LangChain** is a composition library — it connects existing tools but ships zero infrastructure. Memory requires external Redis/Postgres. Observability requires paying for LangSmith. There's no risk gating, no background daemons, and no MCP generation.
+
+**CrewAI** orchestrates agents in crews but its memory is SQLite-only and in-process. There's no cloud persistence, no risk classification, and no autonomous daemon. Each agent does what it's told — nothing more.
+
+**AutoGen** excels at multi-agent conversation but everything runs in-process. No cloud memory, no background loop, no registry, no observability beyond print statements.
+
+**CerebreX** is purpose-built agent infrastructure: the CLI, the cloud workers, the memory layer, the coordination engine, the observatory, and the package registry — all designed together, all open source, all running on Cloudflare's free tier.
 
 ---
 
@@ -335,27 +386,25 @@ The CerebreX registry includes a browser-based UI served directly from the Worke
 
 ## 📊 Benchmarks
 
+Full results with competitive analysis: [**BENCHMARKS.md**](./BENCHMARKS.md)
+
 ```bash
 # Run all local benchmarks (no network needed)
 cerebrex bench
 
 # Run a specific suite
-cerebrex bench --suite forge
-cerebrex bench --suite memex
-cerebrex bench --suite hive
+cerebrex bench --suite forge    # MCP server generation
+cerebrex bench --suite memex    # three-layer memory
+cerebrex bench --suite hive     # swarm coordination + risk gate
+cerebrex bench --suite trace    # observability recording
+cerebrex bench --suite registry # package search
 
-# Or run the full benchmark suite directly with Bun
+# Or run directly with Bun
 bun benchmarks/forge-bench.ts
 bun benchmarks/memex-bench.ts
-bun benchmarks/hive-bench.ts
-bun benchmarks/registry-bench.ts
-bun benchmarks/agent-tasks-bench.ts   # cross-framework comparison
-
-# Live benchmarks (require running workers)
-MEMEX_URL=https://memex.your.workers.dev CEREBREX_API_KEY=cx-... bun benchmarks/memex-bench.ts
 ```
 
-Benchmarks report **p50/p95/p99 latency, throughput (ops/s), and success rate** using `performance.now()` — 200 iterations, 20 warmup runs by default. The CI pipeline runs the full suite weekly (Sundays 02:00 UTC).
+Benchmarks use `performance.now()`, report **p50/p95/p99 latency** and **throughput (ops/s)**, and run with warmup iterations discarded. CI runs the full suite weekly (Sundays 02:00 UTC). All results in [`benchmarks/results/`](benchmarks/results/).
 
 ---
 
