@@ -61,7 +61,7 @@ async def test_get_session(client: TraceClient, httpx_mock: HTTPXMock) -> None:
 
 async def test_list_sessions(client: TraceClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=f"{TRACE_BASE}/sessions",
+        url=f"{TRACE_BASE}/sessions?agentId=agent-01",
         method="GET",
         json={"sessions": [{"sessionId": "sess-1"}, {"sessionId": "sess-2"}]},
     )

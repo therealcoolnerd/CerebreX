@@ -17,7 +17,7 @@ def client(registry_http: HttpClient) -> RegistryClient:
 
 async def test_list_packages(client: RegistryClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=f"{REGISTRY_BASE}/v1/packages",
+        url=f"{REGISTRY_BASE}/v1/packages?limit=20&offset=0",
         method="GET",
         json={
             "packages": [
@@ -34,7 +34,7 @@ async def test_list_packages(client: RegistryClient, httpx_mock: HTTPXMock) -> N
 
 async def test_search_packages(client: RegistryClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=f"{REGISTRY_BASE}/v1/packages",
+        url=f"{REGISTRY_BASE}/v1/packages?limit=20&offset=0&q=web-search",
         method="GET",
         json={
             "packages": [{"name": "mcp-web-search", "version": "1.0.0", "description": "Web search", "createdAt": ""}],

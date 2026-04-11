@@ -49,7 +49,7 @@ async def test_daemon_status_running(client: KairosClient, httpx_mock: HTTPXMock
 
 async def test_daemon_log(client: KairosClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=f"{KAIROS_BASE}/v1/agents/agent-01/daemon/log",
+        url=f"{KAIROS_BASE}/v1/agents/agent-01/daemon/log?limit=1",
         method="GET",
         json={
             "agentId": "agent-01",
@@ -84,7 +84,7 @@ async def test_submit_task(client: KairosClient, httpx_mock: HTTPXMock) -> None:
 
 async def test_list_tasks(client: KairosClient, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url=f"{KAIROS_BASE}/v1/agents/agent-01/tasks",
+        url=f"{KAIROS_BASE}/v1/agents/agent-01/tasks?limit=50",
         method="GET",
         json={
             "agentId": "agent-01",
