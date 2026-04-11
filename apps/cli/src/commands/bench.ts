@@ -32,7 +32,7 @@ function computeStats(samples: number[]): Stats {
 
 async function bench(
   name: string,
-  fn: () => void | Promise<void>,
+  fn: () => unknown,
   iterations = 200,
   warmup = 20
 ): Promise<{ name: string; stats: Stats; successRate: number }> {

@@ -6,10 +6,9 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from cerebrex._http import HttpClient
+from cerebrex.exceptions import AuthenticationError, NotFoundError
 from cerebrex.memex import MemexClient
-from cerebrex.exceptions import AuthenticationError, NotFoundError, ValidationError
-
-from .conftest import MEMEX_BASE, FAKE_API_KEY
+from .conftest import FAKE_API_KEY, MEMEX_BASE
 
 
 @pytest.fixture

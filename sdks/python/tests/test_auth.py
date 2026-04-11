@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import pytest
 
-from cerebrex.auth import get_api_key, get_memex_url, get_kairos_url, get_registry_url
+from cerebrex.auth import get_api_key, get_kairos_url, get_memex_url, get_registry_url
 
 
 def test_get_api_key_from_arg() -> None:

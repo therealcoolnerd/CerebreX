@@ -22,7 +22,7 @@ from cerebrex import CerebreXClient
 
 try:
     from langchain_core.memory import BaseMemory
-    from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+    from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
     from pydantic import Field as LCField
     _LANGCHAIN_AVAILABLE = True
 except ImportError:
@@ -128,8 +128,6 @@ class CerebreXMemory(BaseMemory):  # type: ignore[misc]
 # ── Demo usage (run directly) ─────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import os
-
     if not _LANGCHAIN_AVAILABLE:
         print("langchain not installed. Run: pip install cerebrex[langchain]")
     else:
@@ -138,7 +136,7 @@ if __name__ == "__main__":
     from langchain.chains import ConversationChain
     from langchain_anthropic import ChatAnthropic
 
-    memory = CerebreXMemory(agent_id="my-agent", api_key=os.environ["CEREBREX_API_KEY"])
+    memory = CerebreXMemory(agent_id="my-agent", api_key="cx-your-key")  # or use CEREBREX_API_KEY env var
     llm = ChatAnthropic(model="claude-sonnet-4-6")
     chain = ConversationChain(llm=llm, memory=memory, verbose=True)
     print(chain.predict(input="Hello, what can you do?"))

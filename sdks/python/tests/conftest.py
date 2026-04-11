@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 import httpx
+import pytest
 from pytest_httpx import HTTPXMock
 
 from cerebrex._http import HttpClient

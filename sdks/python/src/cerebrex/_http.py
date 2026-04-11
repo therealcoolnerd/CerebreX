@@ -109,7 +109,7 @@ class HttpClient:
         if self._owned:
             await self._client.aclose()
 
-    async def __aenter__(self) -> "HttpClient":
+    async def __aenter__(self) -> HttpClient:
         return self
 
     async def __aexit__(self, *_: object) -> None:

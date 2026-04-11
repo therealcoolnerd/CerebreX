@@ -106,7 +106,7 @@ class CerebreXClient:
         await self._registry_http.close()
         await self._trace_http.close()
 
-    async def __aenter__(self) -> "CerebreXClient":
+    async def __aenter__(self) -> CerebreXClient:
         return self
 
     async def __aexit__(self, *_: object) -> None:

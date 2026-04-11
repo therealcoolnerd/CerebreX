@@ -22,7 +22,7 @@ from typing import Any
 from cerebrex import CerebreXClient
 
 try:
-    from crewai.utilities import Logger
+    import crewai  # noqa: F401
     _CREWAI_AVAILABLE = True
 except ImportError:
     _CREWAI_AVAILABLE = False
