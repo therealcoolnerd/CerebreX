@@ -56,6 +56,8 @@ CerebreX is built with security as a first-class concern, aligned with the [OWAS
 | **CORS Abuse** | No wildcard CORS on authenticated endpoints in MEMEX or KAIROS workers; registry admin routes use a scoped origin instead of `*` |
 | **Rate Limit Bypass** | MEMEX `/consolidate` rate-limited to 1 per hour per agent via KV TTL |
 | **Agent History Tampering** | KAIROS daemon log is append-only in D1 — no DELETE or UPDATE is ever issued on `daemon_log` |
+| **Chained Medium-Risk Action Bypass** | HIVE workers track per-agent action history in a rolling window (default 5 min). If an agent executes more than N medium-or-higher-risk actions in the window (default N=3, configurable via `CEREBREX_VELOCITY_LIMIT`), the task is blocked and marked failed with a `velocity-escalation` TRACE event. Admin agents holding the `risk_override` JWT scope bypass this check with a full audit trail. |
+| **AlterPlan Task Graph Fragmentation** | `task_execution_state` D1 table in MEMEX tracks every task in an AlterPlan decomposition. KAIROS `reconcile()` runs at each tick, heals stale tasks, and cascades `rolled_back` status to dependents via `dependency_ids` — preventing silent graph fragmentation on daemon crash. |
 | **SSRF (Server-Side Request Forgery)** | `fetch-mcp` and KAIROS queue consumer validate every caller-supplied URL through `ssrfCheck()` before any network I/O — blocks non-http/https schemes, private IPv4/IPv6 ranges, loopback, link-local, cloud metadata endpoints (169.254.169.254, metadata.google.internal), and *.local / *.internal hostnames |
 | **Clickjacking / Content Injection** | All worker responses (site, registry, memex, kairos) include `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, and a full `Content-Security-Policy` header |
 | **Unstructured Daemon Output Execution** | KAIROS daemon tick now requires structured JSON `{act, reasoning, task_type, task_payload}` output — free-text action strings are rejected; `task_type` is validated against the supported enum before dispatch |
@@ -102,6 +104,7 @@ We follow responsible disclosure. If you report a valid vulnerability:
 
 | Version | Date | Fix |
 |---------|------|-----|
+| v0.9.4-patch | 2026-04-12 | HIVE velocity limit (rolling-window chained-action detection); `aggregateRiskScore()` for full AlterPlan plan scoring before execution; `risk_override` JWT scope; MEMEX `task_execution_state` table + API; KAIROS `reconcile()` with dependency cascade; `cerebrex doctor` for environment health; Dockerfile tsconfig fix; telemetry.ts TS error resolved |
 | v0.9.4 | 2026-04-11 | SSRF blocking in `fetch-mcp` and KAIROS; security headers (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy) on all workers; scoped admin CORS in registry (no more wildcard `*`); `hive.json` hardened with `0o600` + icacls; task state pruning (24h retention); KAIROS structured tick output with task_type validation; `ctx.waitUntil()` for ULTRAPLAN promise; `kairos-action` + `claude-execute` classified as `medium` risk (no longer `high`/unknown) |
 | v0.9.3 | 2026-04-09 | Agent test runner (`cerebrex test`) with YAML-based assertions; Docker image published to GHCR; telemetry stub removed from config |
 | v0.9.2 | 2026-04-07 | `cerebrex test` subcommands wired into CLI; VERSION constant in CLI index |
@@ -111,4 +114,4 @@ We follow responsible disclosure. If you report a valid vulnerability:
 
 ---
 
-*Security policy last updated: April 2026 (v0.9.4)*
+*Security policy last updated: April 2026 (v0.9.4-patch)*

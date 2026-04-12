@@ -20,7 +20,7 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.9.4 — Security hardening (SSRF protection, security headers, file permissions, KAIROS execution engine)**
+> **Status: v0.9.4 — Security hardening + AlterPlan/Kairos reconciliation + HIVE velocity limits + `cerebrex doctor`**
 > `npm install -g cerebrex` · `docker pull ghcr.io/arealcoolco/cerebrex` · or download a self-contained binary from [GitHub Releases](https://github.com/arealcoolco/CerebreX/releases)
 >
 > **Live:** Registry UI → `https://registry.therealcool.site`
@@ -42,9 +42,10 @@ Eight modules. One CLI. One registry. One coordination layer.
 | 🧠 **MEMEX** | `cerebrex memex` | ✅ Working | Local + three-layer cloud memory (KV + R2 + D1) with SHA-256 integrity |
 | 🔑 **AUTH** | `cerebrex auth` | ✅ Working | Secure token storage + risk classification gate on every agent action |
 | 📦 **REGISTRY** | `cerebrex publish` | ✅ Working | Publish and install MCP servers (live registry + web UI) |
-| 🐝 **HIVE** | `cerebrex hive` | ✅ Working | Multi-agent coordination — JWT auth, swarm strategies, risk-gated workers |
-| ⏰ **KAIROS** | *(cloud worker)* | ✅ Working | Autonomous agent daemon — Durable Objects, 5-min tick loop, append-only log |
-| 📋 **ULTRAPLAN** | *(cloud API)* | ✅ Working | Opus deep-thinking plan → human approval → parallel task execution |
+| 🐝 **HIVE** | `cerebrex hive` | ✅ Working | Multi-agent coordination — JWT auth, swarm strategies, velocity-limited risk-gated workers |
+| ⏰ **KAIROS** | *(cloud worker)* | ✅ Working | Autonomous agent daemon — Durable Objects, 5-min tick + AlterPlan state reconciliation |
+| 📋 **ULTRAPLAN** | *(cloud API)* | ✅ Working | Opus deep-thinking plan → human approval → parallel task execution with dependency tracking |
+| 🩺 **DOCTOR** | `cerebrex doctor` | ✅ Working | Environment health checker — config, connectivity, orphaned tasks, diagnostic report |
 
 ---
 
@@ -524,6 +525,54 @@ tests:
 
 ---
 
+## 🩺 Environment Doctor — `cerebrex doctor`
+
+Validate your local setup and deployed worker health in one command.
+
+```bash
+# Full local check (credentials, wrangler.toml, HIVE state, registry ping)
+cerebrex doctor
+
+# With live worker connectivity checks
+cerebrex doctor --kairos-url https://your-kairos.workers.dev \
+                --memex-url  https://your-memex.workers.dev  \
+                --api-key    $CEREBREX_API_KEY
+
+# CI-friendly JSON output (exit 1 on any failure)
+cerebrex doctor --json
+```
+
+**What it checks:**
+
+| Check | Description |
+|-------|-------------|
+| `credentials` | `~/.cerebrex/.credentials` exists and contains a token |
+| `wrangler:<worker>` | No placeholder `REPLACE_WITH_YOUR_*` IDs in wrangler.toml |
+| `hive:stuck-tasks` | Tasks stuck in `running` for >30 minutes |
+| `hive:offline-agents` | Registered agents currently offline |
+| `kairos:connectivity` | KAIROS `/health` endpoint reachable |
+| `memex:connectivity` | MEMEX `/health` endpoint reachable |
+| `registry:connectivity` | `registry.therealcool.site/health` reachable |
+
+---
+
+## 🔍 Task Timeline — `cerebrex trace task`
+
+Reconstruct the full execution timeline for any task ID across all local trace sessions:
+
+```bash
+# Find all trace events referencing a task ID
+cerebrex trace task abc123
+
+# Limit to a specific session
+cerebrex trace task abc123 --session my-session
+
+# Machine-readable JSON
+cerebrex trace task abc123 --json
+```
+
+---
+
 ## 🗂 Monorepo Structure
 
 ```
@@ -531,7 +580,7 @@ CerebreX/
 ├── apps/
 │   ├── cli/              # cerebrex CLI — the main published package
 │   │   ├── src/
-│   │   │   ├── commands/ # build, trace, memex, auth, hive, bench, test, other-commands
+│   │   │   ├── commands/ # build, trace, memex, auth, hive, bench, test, doctor, other-commands
 │   │   │   └── core/     # forge/, trace/, memex/, test/ engines + dashboard
 │   │   └── dist/         # built output (git-ignored, built by CI)
 │   └── dashboard/        # Standalone trace explorer HTML
@@ -559,11 +608,11 @@ CerebreX/
 │   │   ├── schema.sql    # D1 database schema
 │   │   └── wrangler.toml
 │   ├── memex/            # Cloudflare Worker — MEMEX v2 three-layer cloud memory
-│   │   ├── src/index.ts  # KV index + R2 topics + D1 transcripts + autoDream cron
-│   │   ├── migrations/   # D1 schema for agents + transcripts tables
+│   │   ├── src/index.ts  # KV index + R2 topics + D1 transcripts + task_execution_state + autoDream cron
+│   │   ├── migrations/   # D1 schema for agents + transcripts + task_execution_state tables
 │   │   └── wrangler.toml
 │   └── kairos/           # Cloudflare Worker — KAIROS daemon + ULTRAPLAN
-│       ├── src/index.ts  # KairosDaemon Durable Object + task queue + ULTRAPLAN
+│       ├── src/index.ts  # KairosDaemon Durable Object + reconcile() + task queue + ULTRAPLAN
 │       ├── migrations/   # D1 schema for daemon_log, tasks, ultraplans
 │       └── wrangler.toml
 ├── packages/
@@ -663,6 +712,11 @@ cd apps/cli && bun run build
 - [x] Benchmark suite — p50/p95/p99, forge/trace/memex/hive/registry + cross-framework agent tasks + `cerebrex bench` CLI command *(v0.9.2)*
 - [x] Python SDK — async httpx client, Pydantic v2, full module coverage, LangChain + CrewAI integrations *(v0.9.2)*
 - [x] Agent test runner — `cerebrex test` with replay + assertions, fixture recording, tag filtering, CI mode *(v0.9.3)*
+- [x] AlterPlan/Kairos state reconciliation — `task_execution_state` D1 table in MEMEX, `reconcile()` in KAIROS heals orphaned tasks and cascades dependency failures *(v0.9.4)*
+- [x] HIVE velocity limits — rolling-window accumulator blocks chained medium-risk attacks; `aggregateRiskScore()` for full AlterPlan plan scoring; `risk_override` JWT scope for admin bypass *(v0.9.4)*
+- [x] `cerebrex doctor` — environment health checker: credentials, wrangler config, stuck HIVE tasks, worker connectivity *(v0.9.4)*
+- [x] `cerebrex trace task <id>` — reconstruct full execution timeline for any task across all local trace sessions *(v0.9.4)*
+- [x] Dockerfile tsconfig fix, Python SDK v0.9.4 on PyPI, User-Agent updated in registry client *(v0.9.4)*
 
 ---
 

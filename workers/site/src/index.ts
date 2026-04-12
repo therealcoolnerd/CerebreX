@@ -1230,12 +1230,12 @@ const WHITEPAPER_HTML = `<!DOCTYPE html>
                 <div class="module-card">
                     <div class="module-card-id"><span>06</span><span class="module-badge live">live</span></div>
                     <div class="module-card-name">HIVE</div>
-                    <div class="module-card-desc">Multi-agent coordination with risk gating. Swarms of agents that self-organize, share memory, and vote before destructive actions.</div>
+                    <div class="module-card-desc">Multi-agent coordination with risk gating and velocity limits. Swarms of agents that self-organize, share memory, and vote before destructive actions — with automatic escalation when chained actions exceed safe thresholds.</div>
                 </div>
                 <div class="module-card">
                     <div class="module-card-id"><span>07</span><span class="module-badge live">live</span></div>
                     <div class="module-card-name">KAIROS</div>
-                    <div class="module-card-desc">Autonomous background daemons. Agents that run on a 5-minute tick loop — deciding whether to act or stay quiet — while you're offline.</div>
+                    <div class="module-card-desc">Autonomous background daemons with state reconciliation. Agents run on a 5-minute tick loop — deciding whether to act or stay quiet. AlterPlan task graphs are tracked in MEMEX and healed automatically if a tick crashes mid-execution.</div>
                 </div>
                 <div class="module-card">
                     <div class="module-card-id"><span>08</span><span class="module-badge live">live</span></div>
@@ -1718,6 +1718,11 @@ cerebrex configure @arealcoolco/github-mcp --env GITHUB_TOKEN=ghp_...</code>
                         <code class="step-code">cerebrex test init
 cerebrex test run --verbose</code>
                     </div>
+                    <div class="step-card reveal">
+                        <div class="step-num">7</div>
+                        <div class="step-title">Validate your environment</div>
+                        <code class="step-code">cerebrex doctor</code>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1808,9 +1813,18 @@ cerebrex test run --verbose</code>
                     <div class="module-card-name">Append-Only Audit Log</div>
                     <div class="module-card-desc">KAIROS daemon tick history is written to D1 with no DELETE or UPDATE ever issued — every decision is permanently auditable and tamper-evident.</div>
                 </div>
+                <div class="module-card">
+                    <div class="module-card-name">Velocity Limits</div>
+                    <div class="module-card-desc">HIVE workers track each agent's action history in a 5-minute rolling window. Chaining more than 3 medium-risk actions triggers automatic escalation — blocking a known multi-step attack pattern before it completes. Configurable via environment variable.</div>
+                </div>
+                <div class="module-card">
+                    <div class="module-card-name">AlterPlan Reconciliation</div>
+                    <div class="module-card-desc">Task execution state is persisted in MEMEX's D1 <code>task_execution_state</code> table. On each KAIROS tick, <code>reconcile()</code> heals stale tasks and cascades failure status to dependent tasks — no silent graph fragmentation on daemon crash.</div>
+                </div>
             </div>
-            <div class="reveal" style="margin-top:2.5rem;">
+            <div class="reveal" style="margin-top:2.5rem;display:flex;gap:1rem;flex-wrap:wrap;">
                 <a href="https://github.com/arealcoolco/CerebreX/blob/main/SECURITY.md" class="btn-outline" target="_blank" rel="noopener">full security policy →</a>
+                <a href="https://github.com/arealcoolco/CerebreX/blob/main/INSTRUCTIONS.md" class="btn-outline" target="_blank" rel="noopener">cerebrex doctor guide →</a>
             </div>
         </div>
     </section>

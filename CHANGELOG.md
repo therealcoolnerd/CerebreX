@@ -6,6 +6,36 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.9.4-patch] — 2026-04-12
+
+### CI Recovery + Architecture Hardening
+
+#### CI Fixes (unblocked all release workflows)
+- **`packages/core/src/telemetry.ts`** — removed stale `config.telemetry` reference; `telemetry` was removed from `CerebreXConfig` in v0.9.3 but the check remained, causing `tsc` to fail on every build, blocking npm publish, Docker, and binaries
+- **`packages/registry-client/src/index.ts`** — User-Agent header updated from `cerebrex-cli/0.3.0` → `cerebrex-cli/0.9.4`
+- **`sdks/python/pyproject.toml`** — version bumped `0.9.2` → `0.9.4`; added `pythonpath = ["src"]` to pytest options (fixes `ModuleNotFoundError: No module named 'cerebrex'` on CI)
+- **`Dockerfile`** — added `COPY tsconfig.json ./` so package tsc builds can resolve `../../tsconfig.json` inside the container; Docker builds now succeed
+- **`build-binaries.yml`** — fixed `workflow_dispatch` trigger: binaries now upload as 7-day GitHub artifacts when manually triggered (not to release, which requires a tag context)
+
+#### FIX 1 — AlterPlan/Kairos State Reconciliation
+- **MEMEX worker** — new `task_execution_state` D1 table: `task_id`, `parent_plan_id`, `status` (`pending|running|completed|failed|rolled_back`), `dependency_ids` (JSON array), `started_at`, `completed_at`, `error_payload`, `retry_count`, `created_at`, `updated_at`
+- **MEMEX API** — new routes: `GET/POST /v1/plans/:planId/tasks` (list + upsert batch), `GET/PATCH /v1/plans/:planId/tasks/:taskId` (individual state), `?stale=true` query param to find tasks stuck in `running` for >10 minutes
+- **KAIROS** — added `MEMEX_URL` to `Env` interface; new `reconcile()` private method runs at the top of every 5-minute tick: queries MEMEX for stale running tasks, re-queues tasks with retries remaining, marks permanently failed tasks and cascades `rolled_back` + `dependency-failed` error to all downstream dependents via `dependency_ids` chain; all reconciliation events logged to `daemon_log` for TRACE visibility
+
+#### FIX 2 — HIVE Velocity Limits + Aggregate Risk Scoring
+- **`risk-gate.ts`** — `aggregateRiskScore(taskTypes[])` computes cumulative risk of an AlterPlan task array before execution (LOW=1, MEDIUM=3, HIGH=10); returns `requiresQuorum: true` when score ≥ 12 (configurable via `CEREBREX_AGGREGATE_RISK_THRESHOLD`)
+- **`risk-gate.ts`** — `checkVelocity(history, type, windowMs, limit)` rolling-window accumulator: prunes entries older than `windowMs` (default 5 min), appends medium+ actions, returns `{ exceeded, count, limit }` when count > `limit` (default 3, configurable via `CEREBREX_VELOCITY_LIMIT` / `CEREBREX_VELOCITY_WINDOW_MS`)
+- **`risk-gate.ts`** — `hasRiskOverride(jwtPayload)` checks `scopes` claim (string or array) for `"risk_override"` — admin-only bypass of velocity limits with full audit trail
+- **`hive.ts`** — velocity check wired into `processTask()` after the risk gate; blocked tasks are marked `failed` on the coordinator with reason; a TRACE step is emitted on escalation; agents with `risk_override` in their JWT scope bypass the velocity check
+- In-process `agentVelocity` map maintains rolling history per agent-id for the lifetime of the worker process
+
+#### FIX 3 — Developer Diagnostic Tooling
+- **`cerebrex doctor`** — new CLI command: checks credentials, wrangler.toml placeholder IDs across all workers, HIVE stuck tasks (>30 min in `running`), offline agents, KAIROS + MEMEX + registry connectivity; `--json` flag for CI use; exits with code 1 on any failure
+- **`cerebrex trace task <taskId>`** — new subcommand: searches all local trace session files for events referencing a task ID, reconstructs chronological timeline with latency, errors, and output; `--session` to scope search; `--json` for machine-readable output
+- **Tests** — 15 unit tests for `aggregateRiskScore`, `checkVelocity`, `hasRiskOverride` (all pass); 4 integration tests for doctor stuck-task detection and wrangler config validation (all pass)
+
+---
+
 ## [0.9.4] — 2026-04-11
 
 ### Security Hardening + KAIROS Execution Engine

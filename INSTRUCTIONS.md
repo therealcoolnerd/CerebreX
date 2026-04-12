@@ -2,7 +2,7 @@
 
 Everything you need to go from zero to running AI agents with memory, tooling, and coordination.
 
-**Current version: v0.9.4**
+**Current version: v0.9.4-patch (2026-04-12)**
 
 ---
 
@@ -22,7 +22,7 @@ npm install -g cerebrex
 cerebrex --help
 ```
 
-You should see all commands: `build`, `trace`, `memex`, `auth`, `hive`, `test`, `publish`, and more.
+You should see all commands: `build`, `trace`, `memex`, `auth`, `hive`, `test`, `doctor`, `publish`, and more.
 
 **Or download a standalone binary** (no Node.js required):
 - `cerebrex-linux-x64` — Linux x64 (Ubuntu, Debian, Chrome OS)
@@ -267,6 +267,14 @@ Blocked tasks are marked `failed` on the coordinator and logged with the denial 
 To permit HIGH-risk tasks: `cerebrex hive worker --id <id> --token <jwt> --allow-high-risk`.
 To block even MEDIUM tasks: add `--block-medium-risk`.
 
+**Velocity limit (chained action protection):** Even if individual actions pass the per-action gate, HIVE workers track each agent's medium+ actions in a rolling 5-minute window. If an agent exceeds 3 medium-or-higher-risk actions in that window, the current task is blocked and a `velocity-escalation` TRACE event is emitted. This prevents a compromised agent from chaining multiple medium-risk actions to achieve a high-risk outcome.
+
+Configure via environment variables:
+- `CEREBREX_VELOCITY_LIMIT` — actions per window before escalation (default: `3`)
+- `CEREBREX_VELOCITY_WINDOW_MS` — rolling window size in ms (default: `300000` = 5 minutes)
+
+Admin agents with `"risk_override"` in their JWT `scopes` claim bypass the velocity check.
+
 ### Built-in task types
 
 | Type | Required payload | Risk |
@@ -422,6 +430,18 @@ cerebrex trace view --session test-session --web
 
 Traces are saved to `~/.cerebrex/traces/`.
 
+**Reconstruct a task timeline:**
+```bash
+# Find all trace events for a specific task ID across all sessions
+cerebrex trace task <task_id>
+
+# Limit to a specific session
+cerebrex trace task <task_id> --session my-session
+
+# JSON output for CI or further processing
+cerebrex trace task <task_id> --json
+```
+
 ---
 
 ## 10 — Test the Agent Test Runner
@@ -484,7 +504,36 @@ assertions:
 
 ---
 
-## 11 — Test FORGE (MCP Server Generation)
+## 11 — Run Environment Doctor
+
+`cerebrex doctor` validates your local setup and checks connectivity to deployed workers:
+
+```bash
+# Quick local check (credentials, wrangler.toml, HIVE state, registry ping)
+cerebrex doctor
+
+# With live worker connectivity
+cerebrex doctor \
+  --kairos-url https://your-kairos.workers.dev \
+  --memex-url  https://your-memex.workers.dev  \
+  --api-key    $CEREBREX_API_KEY
+
+# CI-friendly (exits 1 on any failure)
+cerebrex doctor --json
+```
+
+**Checks performed:**
+- `credentials` — `~/.cerebrex/.credentials` exists with a valid token
+- `wrangler:<worker>` — no placeholder `REPLACE_WITH_YOUR_*` IDs in wrangler.toml files
+- `hive:stuck-tasks` — tasks stuck in `running` for >30 minutes
+- `hive:offline-agents` — registered agents currently offline
+- `kairos:connectivity` — KAIROS `/health` reachable
+- `memex:connectivity` — MEMEX `/health` reachable
+- `registry:connectivity` — `registry.therealcool.site/health` reachable
+
+---
+
+## 12 — Test FORGE (MCP Server Generation)
 
 ```bash
 # scaffold a new MCP server from an OpenAPI spec
@@ -502,7 +551,7 @@ ls ./my-petstore-mcp/
 
 ---
 
-## 12 — Publish to the Registry
+## 13 — Publish to the Registry
 
 ```bash
 # build your package
@@ -520,7 +569,7 @@ cerebrex search petstore
 
 ---
 
-## 13 — Test the Registry Web UI
+## 14 — Test the Registry Web UI
 
 Open [registry.therealcool.site](https://registry.therealcool.site) in a browser:
 
