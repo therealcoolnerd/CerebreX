@@ -3,8 +3,8 @@ FROM oven/bun:1-alpine AS builder
 
 WORKDIR /workspace
 
-# Copy workspace manifest + lockfile first (layer cache)
-COPY package.json bun.lockb* ./
+# Copy workspace manifest + lockfile + root tsconfig first (layer cache)
+COPY package.json bun.lockb* tsconfig.json ./
 COPY packages/types/       packages/types/
 COPY packages/core/        packages/core/
 COPY packages/registry-client/ packages/registry-client/
