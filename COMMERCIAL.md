@@ -42,7 +42,6 @@ Cloud tiers include features not available in the self-hosted version:
 | Pro | $29/mo | Cloud traces, 1GB memory, public registry |
 | Team | $99/mo | Shared workspaces, private registry, 5 users |
 | Business | $299/mo | Unlimited traces, HIVE cloud, SSO |
-| Enterprise | $999+/mo | On-prem, SLA, SOC 2, custom integrations |
 
 ---
 

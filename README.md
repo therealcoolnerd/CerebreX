@@ -20,7 +20,7 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.9.2 — Benchmark suite (forge/trace/memex/hive/registry + `cerebrex bench`), Python SDK (pip install cerebrex), npm homepage fix**
+> **Status: v0.9.3 — Agent test runner (`cerebrex test` — replay + assertions + fixture recording + CI mode)**
 > `npm install -g cerebrex` — or download a self-contained binary from [GitHub Releases](https://github.com/arealcoolco/CerebreX/releases) (no Node.js required)
 >
 > **Live:** Registry UI → `https://registry.therealcool.site`
@@ -440,6 +440,80 @@ See [sdks/python/README.md](sdks/python/README.md) for the full SDK reference in
 
 ---
 
+## 🧪 Agent Test Runner
+
+`cerebrex test` lets you write structured assertions against recorded agent traces — no live model calls needed.
+
+```bash
+# Scaffold a starter spec file
+cerebrex test init
+
+# Run all discovered specs
+cerebrex test run
+
+# Run a specific spec with verbose output
+cerebrex test run my-agent.test.yaml --verbose
+
+# CI mode (JSON to stdout, exit 1 on failure)
+cerebrex test run --ci
+
+# Only run tests tagged "smoke"
+cerebrex test run --tag smoke
+
+# Record a saved trace session as a reusable fixture
+cerebrex test record <session-id>
+
+# List all discovered spec files
+cerebrex test list
+
+# Inspect a spec file
+cerebrex test show my-agent.test.yaml
+```
+
+**Spec format** (`my-agent.test.yaml`):
+
+```yaml
+name: My Agent Tests
+
+tests:
+  - name: search tool called with correct query
+    steps:
+      - type: tool_call
+        toolName: web_search
+        inputs:
+          query: "CerebreX agent OS"
+        latencyMs: 120
+      - type: tool_result
+        toolName: web_search
+        outputs:
+          results:
+            - title: "CerebreX — Agent Infrastructure OS"
+        tokens: 45
+    assert:
+      noErrors: true
+      stepCount: 2
+      toolsCalled:
+        tools: [web_search]
+      steps:
+        - at: 0
+          toolName: web_search
+
+  # Replay a recorded trace fixture
+  - name: matches recorded session
+    fixture: my-session.fixture.json
+    assert:
+      noErrors: true
+      stepCount:
+        min: 1
+      output:
+        path: results.0.title
+        contains: "CerebreX"
+```
+
+**Assertions available:** `stepCount`, `tokenCount`, `durationMs`, `noErrors`, `toolsCalled` (with `ordered`/`exact` modes), per-step checks (`type`, `toolName`, `outputPath`/`outputValue`, `latencyMs`), and `output` (dot-path `equals`/`contains`/`matches`).
+
+---
+
 ## 🗂 Monorepo Structure
 
 ```
@@ -447,8 +521,8 @@ CerebreX/
 ├── apps/
 │   ├── cli/              # cerebrex CLI — the main published package
 │   │   ├── src/
-│   │   │   ├── commands/ # build, trace, memex, auth, hive, bench, other-commands
-│   │   │   └── core/     # forge/, trace/, memex/ engines + dashboard
+│   │   │   ├── commands/ # build, trace, memex, auth, hive, bench, test, other-commands
+│   │   │   └── core/     # forge/, trace/, memex/, test/ engines + dashboard
 │   │   └── dist/         # built output (git-ignored, built by CI)
 │   └── dashboard/        # Standalone trace explorer HTML
 │       └── src/index.html
@@ -578,9 +652,7 @@ cd apps/cli && bun run build
 - [x] Security hardening — risk gate wired into HIVE worker, JWT /token endpoint authenticated, KAIROS exponential backoff + JSON validation, agentId injection prevention *(v0.9.1)*
 - [x] Benchmark suite — p50/p95/p99, forge/trace/memex/hive/registry + cross-framework agent tasks + `cerebrex bench` CLI command *(v0.9.2)*
 - [x] Python SDK — async httpx client, Pydantic v2, full module coverage, LangChain + CrewAI integrations *(v0.9.2)*
-- [ ] Agent test runner — `cerebrex test` with replay + assertions *(v1.0)*
-- [ ] Custom domain *(next)*
-- [ ] Enterprise tier + on-prem *(v1.0)*
+- [x] Agent test runner — `cerebrex test` with replay + assertions, fixture recording, tag filtering, CI mode *(v0.9.3)*
 
 ---
 

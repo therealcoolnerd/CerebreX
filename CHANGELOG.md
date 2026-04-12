@@ -6,6 +6,31 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.9.3] — 2026-04-11
+
+### Agent Test Runner — `cerebrex test`
+
+Structured trace replay and assertion engine for agent behaviour. Write test specs in YAML or JSON, replay against recorded or inline traces, assert on step counts, token usage, latency, tool calls, and output values — all without hitting a live model.
+
+#### CLI — New Command: `cerebrex test`
+- **`cerebrex test run [specs...]`** — auto-discovers `.test.yaml`/`.test.yml`/`.test.json` files in cwd and `~/.cerebrex/tests/`; runs all or specific files
+  - `--tag <tag>` — only run test cases with the matching tag
+  - `--bail` — stop after the first failure
+  - `--verbose` — show all assertion results, not just failures
+  - `--json` / `--ci` — JSON to stdout + `exit 1` on any failure (CI integration)
+- **`cerebrex test record <session-id>`** — snapshot a saved TRACE session from `~/.cerebrex/traces/` as a reusable fixture in `~/.cerebrex/tests/`
+- **`cerebrex test list [-d dir]`** — list all discovered spec files with test counts and modification times
+- **`cerebrex test show <spec>`** — display all test cases in a spec file with their assertion types
+- **`cerebrex test init [-n name]`** — scaffold a starter `.test.yaml` file with an inline replay example and a commented fixture example
+
+#### Core Test Engine (`apps/cli/src/core/test/`)
+- **`engine.ts`** — `loadSpec()` (YAML/JSON), `loadFixture()` (4-path resolution: spec-relative, traces dir, absolute), `buildSessionFromSteps()` (inline replay → `TraceSession`), `runTestCase()` (tag filtering + timeout via `Promise.race`), `runSpec()` (full suite runner), `recordFixture()`, `listSpecs()`
+- **`assertions.ts`** — `evaluate()` dispatches all assertion types: `stepCount`/`tokenCount`/`durationMs` (exact number or `{min,max,exact}` ranges), `noErrors` (finds error-type steps), `toolsCalled` (unordered, ordered subsequence, or exact-only modes), `steps[]` (per-step assertions by index or `"last"`), `output` (dot-notation path with `equals`/`contains`/`matches`)
+- **`reporter.ts`** — colored terminal output (✓/✗/⚠/–), JSON reporter, multi-suite summary, exit code helper
+- **`types.ts`** — `TestSpec`, `TestCase`, `ReplayStep`, `AssertionSet`, `RangeAssertion`, `StepAssertion`, `ToolsCalledAssertion`, `OutputAssertion`, `AssertionResult`, `TestCaseResult`, `TestSuiteResult`, `RunOptions`
+
+---
+
 ## [0.9.1] — 2026-04-04
 
 ### Security Hardening — Risk Gate Integration + JWT Auth + KAIROS Hardening

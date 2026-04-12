@@ -21,8 +21,9 @@ import { memexCommand } from './commands/memex.js';
 import { authCommand } from './commands/auth.js';
 import { hiveCommand } from './commands/hive.js';
 import { benchCommand } from './commands/bench.js';
+import { testCommand } from './commands/test.js';
 
-const VERSION = '0.9.2';
+const VERSION = '0.9.3';
 
 const program = new Command();
 
@@ -61,6 +62,7 @@ program.addCommand(memexCommand);
 program.addCommand(authCommand);
 program.addCommand(hiveCommand);
 program.addCommand(benchCommand);
+program.addCommand(testCommand);
 
 // ── Handle Unknown Commands ───────────────────────────────────────────────────
 program.on('command:*', (operands) => {

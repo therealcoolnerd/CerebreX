@@ -403,7 +403,7 @@ const HTML = `<!DOCTYPE html>
                 <span class="beta-badge">beta</span>
                 <div class="project-title">cerebrex</div>
                 <div class="project-description">
-                    the open-source Agent Infrastructure OS for Claude and other AI agents — v0.9.2.
+                    the open-source Agent Infrastructure OS for Claude and other AI agents — v0.9.3.
                     8 live modules: FORGE, TRACE, MEMEX, KAIROS, HIVE, AUTH, REGISTRY, ULTRAPLAN.
                     <strong style="color:rgba(255,255,255,0.9)">26× faster startup than LangChain. 42× faster than CrewAI.</strong>
                     Python SDK live. built for developers who want production-grade agent infrastructure without the overhead.
@@ -1078,7 +1078,7 @@ const WHITEPAPER_HTML = `<!DOCTYPE html>
 
     <!-- ── HERO ── -->
     <div class="hero">
-        <div class="hero-eyebrow">whitepaper — v0.9.2</div>
+        <div class="hero-eyebrow">whitepaper — v0.9.3</div>
         <h1 class="hero-title">The Agent Infrastructure <em>OS</em></h1>
         <p class="hero-thesis">
             AI agents are powerful. The infrastructure around them is broken.
@@ -1446,9 +1446,9 @@ async with CerebreXClient(api_key="cx-...") as client:
                 Real numbers. Real competition. <em>Measured, not estimated.</em>
             </div>
             <p class="body-text reveal">
-                All benchmarks run on v0.9.2 against production endpoints. Competitor numbers
+                All benchmarks run on v0.9.3 against production endpoints. Competitor numbers
                 measured with identical hardware and methodology. Full results at
-                <code>benchmarks/results/v0.9.2.json</code> in the repository.
+                <code>benchmarks/results/v0.9.3.json</code> in the repository.
             </p>
 
             <div class="stat-grid reveal">
@@ -1691,6 +1691,14 @@ asyncio.run(run_agent())</code>
 cerebrex configure @arealcoolco/github-mcp --env GITHUB_TOKEN=ghp_...</code>
                     </div>
                 </div>
+                <div class="step">
+                    <div class="step-num">06</div>
+                    <div class="step-content">
+                        <div class="step-title">Test your agent's behaviour</div>
+                        <code class="step-code">cerebrex test init
+cerebrex test run --verbose</code>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
@@ -1746,7 +1754,7 @@ cerebrex configure @arealcoolco/github-mcp --env GITHUB_TOKEN=ghp_...</code>
             </h2>
             <p class="body-text reveal">
                 The roadmap includes a cloud dashboard, MCP server marketplace,
-                agent-to-agent billing, and a hosted multi-tenant HIVE.
+                agent-to-agent billing, and a hosted multi-tenant HIVE — all free and open.
                 Drop your email to hear about it first.
             </p>
             <div class="access-form reveal">
@@ -1775,7 +1783,7 @@ cerebrex configure @arealcoolco/github-mcp --env GITHUB_TOKEN=ghp_...</code>
                 <a href="https://pypi.org/project/cerebrex/" target="_blank" rel="noopener">pypi</a>
             </div>
             <div class="footer-copy">
-                cerebrex v0.9.2 &mdash; apache 2.0 &mdash; a real cool co. &mdash; therealcool.site
+                cerebrex v0.9.3 &mdash; apache 2.0 &mdash; a real cool co. &mdash; therealcool.site
             </div>
         </div>
     </footer>

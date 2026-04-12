@@ -1155,7 +1155,7 @@ async function registryUI(env: Env): Promise<string> {
  ██║     ██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗ ██╔██╗
  ╚██████╗███████╗██║  ██║███████╗██████╔╝██║  ██║██╔╝ ██╗
   ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝</pre>
-  <div class="hero-sub">cerebrex project example — v0.9.2 — every module, live in your browser</div>
+  <div class="hero-sub">cerebrex project example — v0.9.3 — every module, live in your browser</div>
   <div class="hero-pills">
     <a class="hero-pill live" href="#forge">forge</a>
     <a class="hero-pill live" href="#trace">trace</a>
@@ -1599,7 +1599,7 @@ async function registryUI(env: Env): Promise<string> {
 
 <!-- FOOTER -->
 <footer>
-  <div>cerebrex project example &mdash; v0.9.2 &mdash; a real cool co.</div>
+  <div>cerebrex project example &mdash; v0.9.3 &mdash; a real cool co.</div>
   <div style="margin-top:10px;display:flex;justify-content:center;gap:20px;flex-wrap:wrap">
     <a href="https://therealcool.site" target="_blank">home</a>
     <a href="https://therealcool.site/whitepaper" target="_blank">whitepaper</a>
