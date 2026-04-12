@@ -1,3 +1,20 @@
+const SITE_SECURITY_HEADERS: Record<string, string> = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'X-XSS-Protection': '1; mode=block',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https:",
+    "frame-ancestors 'none'",
+  ].join('; '),
+};
+
 export default {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -8,6 +25,7 @@ export default {
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache',
+          ...SITE_SECURITY_HEADERS,
         },
       });
     }
@@ -15,6 +33,7 @@ export default {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-cache',
+        ...SITE_SECURITY_HEADERS,
       },
     });
   },
@@ -403,7 +422,7 @@ const HTML = `<!DOCTYPE html>
                 <span class="beta-badge">beta</span>
                 <div class="project-title">cerebrex</div>
                 <div class="project-description">
-                    the open-source Agent Infrastructure OS for Claude and other AI agents — v0.9.3.
+                    the open-source Agent Infrastructure OS for Claude and other AI agents — v0.9.4.
                     8 live modules: FORGE, TRACE, MEMEX, KAIROS, HIVE, AUTH, REGISTRY, ULTRAPLAN.
                     <strong style="color:rgba(255,255,255,0.9)">26× faster startup than LangChain. 42× faster than CrewAI.</strong>
                     Python SDK live. built for developers who want production-grade agent infrastructure without the overhead.
@@ -1078,7 +1097,7 @@ const WHITEPAPER_HTML = `<!DOCTYPE html>
 
     <!-- ── HERO ── -->
     <div class="hero">
-        <div class="hero-eyebrow">whitepaper — v0.9.3</div>
+        <div class="hero-eyebrow">whitepaper — v0.9.4</div>
         <h1 class="hero-title">The Agent Infrastructure <em>OS</em></h1>
         <p class="hero-thesis">
             AI agents are powerful. The infrastructure around them is broken.
@@ -1446,9 +1465,9 @@ async with CerebreXClient(api_key="cx-...") as client:
                 Real numbers. Real competition. <em>Measured, not estimated.</em>
             </div>
             <p class="body-text reveal">
-                All benchmarks run on v0.9.3 against production endpoints. Competitor numbers
+                All benchmarks run on v0.9.4 against production endpoints. Competitor numbers
                 measured with identical hardware and methodology. Full results at
-                <code>benchmarks/results/v0.9.3.json</code> in the repository.
+                <code>benchmarks/results/v0.9.4.json</code> in the repository.
             </p>
 
             <div class="stat-grid reveal">
@@ -1783,7 +1802,7 @@ cerebrex test run --verbose</code>
                 <a href="https://pypi.org/project/cerebrex/" target="_blank" rel="noopener">pypi</a>
             </div>
             <div class="footer-copy">
-                cerebrex v0.9.3 &mdash; apache 2.0 &mdash; a real cool co. &mdash; therealcool.site
+                cerebrex v0.9.4 &mdash; apache 2.0 &mdash; a real cool co. &mdash; therealcool.site
             </div>
         </div>
     </footer>

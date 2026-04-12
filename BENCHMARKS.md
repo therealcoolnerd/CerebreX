@@ -1,6 +1,6 @@
 <div align="center">
 
-# CerebreX Benchmark Report — v0.9.3
+# CerebreX Benchmark Report — v0.9.4
 
 **Measured on:** 2026-04-11 &nbsp;|&nbsp; **Runtime:** Bun >= 1.0 &nbsp;|&nbsp; **Platform:** Windows 11 x64  
 **Methodology:** `performance.now()` — warmup runs discarded — p50/p95/p99 reported  
@@ -12,7 +12,7 @@
 
 ## Infrastructure Benchmarks (Measured)
 
-All numbers below are **real, locally measured results** on CerebreX v0.9.3.
+All numbers below are **real, locally measured results** on CerebreX v0.9.4.
 
 ### FORGE — MCP Server Generation
 
@@ -328,5 +328,5 @@ Results are fully reproducible. All benchmark source code is in [`benchmarks/`](
 
 ---
 
-*Last updated: 2026-04-11 — CerebreX v0.9.3*  
+*Last updated: 2026-04-11 — CerebreX v0.9.4*  
 *[therealcool.site](https://therealcool.site) — by [A Real Cool Co.](https://github.com/arealcoolco)*

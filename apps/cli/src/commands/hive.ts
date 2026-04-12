@@ -19,6 +19,7 @@ import fs from 'fs';
 import os from 'os';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { gateAction, buildPolicy } from '../core/auth/risk-gate.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -117,9 +118,29 @@ function loadState(configDir: string): HiveState | null {
   }
 }
 
+const TASK_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 function saveState(configDir: string, state: HiveState): void {
   fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(getStateFile(configDir), JSON.stringify(state, null, 2));
+
+  // Rotate completed/failed tasks older than 24 hours to prevent unbounded growth
+  const cutoff = new Date(Date.now() - TASK_RETENTION_MS).toISOString();
+  state.tasks = state.tasks.filter(
+    (t) => t.status === 'queued' || t.status === 'running' ||
+    !t.completed_at || t.completed_at > cutoff
+  );
+
+  const file = getStateFile(configDir);
+  fs.writeFileSync(file, JSON.stringify(state, null, 2), { mode: 0o600 });
+
+  // Windows: harden with icacls (same pattern as .credentials)
+  if (process.platform === 'win32') {
+    try {
+      execFileSync('icacls', [
+        file, '/inheritance:r', '/grant:r', `${process.env['USERNAME'] ?? 'User'}:(F)`,
+      ], { stdio: 'ignore' });
+    } catch { /* icacls not available in all environments — best-effort */ }
+  }
 }
 
 function loadConfig(configDir: string): HiveConfig | null {
@@ -164,7 +185,15 @@ hiveCommand
       created_at: new Date().toISOString(),
     };
 
-    fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+    // 0o600 — hive.json contains the JWT signing secret; owner-only access
+    fs.writeFileSync(configFile, JSON.stringify(config, null, 2), { mode: 0o600 });
+    if (process.platform === 'win32') {
+      try {
+        execFileSync('icacls', [
+          configFile, '/inheritance:r', '/grant:r', `${process.env['USERNAME'] ?? 'User'}:(F)`,
+        ], { stdio: 'ignore' });
+      } catch { /* best-effort */ }
+    }
     const state: HiveState = { config, agents: [], tasks: [] };
     saveState(configDir, state);
 

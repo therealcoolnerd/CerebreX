@@ -32,23 +32,25 @@ export const DEFAULT_POLICY: RiskPolicy = {
 
 const TOOL_RISK: Record<string, RiskLevel> = {
   // Read-only — always safe
-  noop:        'low',
-  echo:        'low',
-  'memex-get': 'low',
-  status:      'low',
-  list:        'low',
-  search:      'low',
-  read:        'low',
-  'trace-view':'low',
+  noop:            'low',
+  echo:            'low',
+  'memex-get':     'low',
+  status:          'low',
+  list:            'low',
+  search:          'low',
+  read:            'low',
+  'trace-view':    'low',
 
   // Side-effects — confirm before running in automated contexts
-  fetch:         'medium',
-  'memex-set':   'medium',
-  write:         'medium',
-  update:        'medium',
-  configure:     'medium',
-  'trace-start': 'medium',
-  'trace-stop':  'medium',
+  fetch:           'medium',
+  'memex-set':     'medium',
+  write:           'medium',
+  update:          'medium',
+  configure:       'medium',
+  'trace-start':   'medium',
+  'trace-stop':    'medium',
+  'kairos-action': 'medium',   // daemon-generated structured task; side-effects depend on sub-type
+  'claude-execute':'medium',   // Claude subtask; reads/writes MEMEX but no irreversible ops
 
   // Irreversible / high-blast-radius — explicit opt-in required
   delete:          'high',

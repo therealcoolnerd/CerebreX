@@ -15,7 +15,6 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 export interface CerebreXConfig {
   version: string;
-  telemetry: boolean;
   defaultTransport: 'stdio' | 'sse' | 'streamable-http';
   defaultOutputDir: string;
   registryUrl: string;
@@ -24,7 +23,6 @@ export interface CerebreXConfig {
 
 const DEFAULTS: CerebreXConfig = {
   version: '1',
-  telemetry: true,
   defaultTransport: 'streamable-http',
   defaultOutputDir: './cerebrex-output',
   registryUrl: 'https://registry.therealcool.site',

@@ -26,9 +26,20 @@ export interface Env {
   REGISTRY_ADMIN_TOKEN?: string;
 }
 
-// ── CORS helpers ──────────────────────────────────────────────────────────────
+// ── Security + CORS helpers ───────────────────────────────────────────────────
 
-function corsHeaders(): Record<string, string> {
+const ALLOWED_ORIGIN = 'https://registry.therealcool.site';
+
+function securityHeaders(): Record<string, string> {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-XSS-Protection': '1; mode=block',
+  };
+}
+
+function corsHeaders(req?: Request): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
@@ -37,17 +48,48 @@ function corsHeaders(): Record<string, string> {
   };
 }
 
+/** Restricted CORS for admin routes — only the registry's own origin. */
+function adminCorsHeaders(req?: Request): Record<string, string> {
+  const origin = req?.headers.get('Origin') ?? '';
+  const allowed = origin === ALLOWED_ORIGIN ? origin : ALLOWED_ORIGIN;
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
+  };
+}
+
 function json(data: unknown, status = 200, extra: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(), ...extra },
+    headers: { 'Content-Type': 'application/json', ...securityHeaders(), ...corsHeaders(), ...extra },
+  });
+}
+
+function adminJson(data: unknown, status = 200, req?: Request): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...securityHeaders(), ...adminCorsHeaders(req) },
   });
 }
 
 function html(body: string, status = 200): Response {
   return new Response(body, {
     status,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      ...securityHeaders(),
+      'Content-Security-Policy': [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: https:",
+        "connect-src 'self' https:",
+        "frame-ancestors 'none'",
+      ].join('; '),
+    },
   });
 }
 
@@ -1155,7 +1197,7 @@ async function registryUI(env: Env): Promise<string> {
  ██║     ██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗ ██╔██╗
  ╚██████╗███████╗██║  ██║███████╗██████╔╝██║  ██║██╔╝ ██╗
   ╚═════╝╚══════╝╚═╝  ╚═╝╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝</pre>
-  <div class="hero-sub">cerebrex project example — v0.9.3 — every module, live in your browser</div>
+  <div class="hero-sub">cerebrex project example — v0.9.4 — every module, live in your browser</div>
   <div class="hero-pills">
     <a class="hero-pill live" href="#forge">forge</a>
     <a class="hero-pill live" href="#trace">trace</a>
@@ -1599,7 +1641,7 @@ async function registryUI(env: Env): Promise<string> {
 
 <!-- FOOTER -->
 <footer>
-  <div>cerebrex project example &mdash; v0.9.3 &mdash; a real cool co.</div>
+  <div>cerebrex project example &mdash; v0.9.4 &mdash; a real cool co.</div>
   <div style="margin-top:10px;display:flex;justify-content:center;gap:20px;flex-wrap:wrap">
     <a href="https://therealcool.site" target="_blank">home</a>
     <a href="https://therealcool.site/whitepaper" target="_blank">whitepaper</a>
@@ -3246,11 +3288,11 @@ async function handleAdminListUsers(request: Request, env: Env): Promise<Respons
 
   const countMap = new Map((pkgCounts || []).map(r => [r.author, r.count]));
 
-  return json({
+  return adminJson({
     success: true,
     users: (users || []).map(u => ({ ...u, package_count: countMap.get(u.username) || 0 })),
     count: users?.length || 0,
-  });
+  }, 200, request);
 }
 
 async function handleAdminUpdateUser(request: Request, env: Env, username: string): Promise<Response> {
@@ -3272,7 +3314,7 @@ async function handleAdminUpdateUser(request: Request, env: Env, username: strin
     }
   }
 
-  return json({ success: true, message: `User '${username}' updated` });
+  return adminJson({ success: true, message: `User '${username}' updated` }, 200, request);
 }
 
 async function handleAdminFeaturePackage(request: Request, env: Env, name: string): Promise<Response> {
@@ -3287,5 +3329,8 @@ async function handleAdminFeaturePackage(request: Request, env: Env, name: strin
   const featured = body.featured !== false ? 1 : 0;
 
   await env.DB.prepare('UPDATE packages SET featured = ? WHERE name = ?').bind(featured, name).run();
-  return json({ success: true, message: featured ? `'${name}' is now featured` : `'${name}' unfeatured` });
+  return adminJson({
+    success: true,
+    message: featured ? `'${name}' is now featured` : `'${name}' unfeatured`,
+  }, 200, request);
 }

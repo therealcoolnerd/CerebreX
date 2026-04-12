@@ -25,10 +25,22 @@ const MAX_TOPIC_BYTES      = 524_288;   // 512KB per topic file
 const MAX_INDEX_BYTES      = 25_600;    // 25KB index hard limit
 const MAX_SESSION_ID_LEN   = 128;
 
+function securityHeaders(): Record<string, string> {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-XSS-Protection': '1; mode=block',
+  };
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' }, // no wildcard CORS — auth required
+    headers: {
+      'Content-Type': 'application/json',
+      ...securityHeaders(),
+    }, // no wildcard CORS — auth required
   });
 }
 
@@ -288,6 +300,8 @@ export default {
       if (method === 'GET') {
         const q = url.searchParams.get('q') ?? '';
         const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '20', 10), 100);
+        // full=true returns the complete content field; default is a 200-char preview
+        const fullContent = url.searchParams.get('full') === 'true';
         if (!q) return err('q is required');
         const { results } = await env.DB.prepare(
           `SELECT id, session_id, content, created_at FROM transcripts
@@ -295,7 +309,15 @@ export default {
         ).bind(agentId, `%${q}%`, limit).all<{
           id: number; session_id: string | null; content: string; created_at: string;
         }>();
-        return json({ agentId, query: q, results: results ?? [] });
+        const safe = (results ?? []).map((r) => ({
+          id: r.id,
+          session_id: r.session_id,
+          created_at: r.created_at,
+          // Return a 200-char preview by default; callers must opt in for full content
+          preview: r.content.slice(0, 200) + (r.content.length > 200 ? '…' : ''),
+          ...(fullContent ? { content: r.content } : {}),
+        }));
+        return json({ agentId, query: q, results: safe, total: safe.length, fullContent });
       }
     }
 

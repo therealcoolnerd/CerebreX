@@ -20,7 +20,7 @@ The complete infrastructure layer for AI agents — in one CLI.
 
 ---
 
-> **Status: v0.9.3 — Agent test runner (`cerebrex test` — replay + assertions + fixture recording + CI mode)**
+> **Status: v0.9.4 — Security hardening (SSRF protection, security headers, file permissions, KAIROS execution engine)**
 > `npm install -g cerebrex` · `docker pull ghcr.io/arealcoolco/cerebrex` · or download a self-contained binary from [GitHub Releases](https://github.com/arealcoolco/CerebreX/releases)
 >
 > **Live:** Registry UI → `https://registry.therealcool.site`

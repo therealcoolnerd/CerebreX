@@ -23,7 +23,7 @@ import { hiveCommand } from './commands/hive.js';
 import { benchCommand } from './commands/bench.js';
 import { testCommand } from './commands/test.js';
 
-const VERSION = '0.9.3';
+const VERSION = '0.9.4';
 
 const program = new Command();
 

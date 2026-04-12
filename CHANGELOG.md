@@ -6,6 +6,48 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ---
 
+## [0.9.4] — 2026-04-11
+
+### Security Hardening + KAIROS Execution Engine
+
+Full security audit pass. Every finding from the v0.9.3 independent audit is resolved.
+
+#### Critical — SSRF Protection
+- **`fetch-mcp`** — `http_get`, `http_post`, `http_request` now run every URL through `ssrfCheck()` before any network I/O. Blocks: private IPv4 ranges (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, 100.64/10), all reserved/documentation ranges, IPv6 private ranges (::1, fc/fd/fe80), localhost and common internal DNS suffixes (`.local`, `.internal`, `.corp`), and known cloud metadata hosts (`metadata.google.internal`, `169.254.169.254`)
+- **KAIROS queue consumer** — `fetch` task type now runs the same `ssrfCheck()` before executing server-side HTTP requests; any blocked URL fails the task cleanly with a descriptive error
+
+#### Critical — ULTRAPLAN Reliability
+- **`ctx.waitUntil`** — ULTRAPLAN planning promise is now correctly passed to `ctx.waitUntil()` so it completes even on slow Opus calls after the HTTP response is sent (was a detached void promise that could be killed mid-planning)
+- **Safe JSON parse on approve** — `JSON.parse(plan.plan)` now wrapped in try/catch with `/\{[\s\S]*\}/` extraction to handle Claude prose-before-JSON; returns HTTP 422 with a clear message instead of a 500 stack trace
+- **`createdBy` validation** — max 64 chars, alphanumeric/space/`_-@.` only; previously accepted arbitrary-length strings
+
+#### Medium — File Permission Hardening
+- **`hive.json`** — now written with `mode: 0o600` + `icacls` on Windows; this file contains the JWT HMAC signing secret
+- **`state.json`** — now written with `mode: 0o600` + `icacls` on Windows
+- **Task rotation** — completed/failed tasks older than 24 hours are pruned from `state.json` on every write, preventing unbounded growth
+
+#### Medium — Data Exposure
+- **MEMEX transcript search** — `/transcripts/search` now returns a 200-char `preview` field by default instead of the full `content`; add `?full=true` to opt in to full content (prevents accidental credential/PII exposure in search responses)
+
+#### Low — Security Response Headers
+- **All workers** — every HTML and JSON response now includes: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-XSS-Protection: 1; mode=block`
+- **HTML responses** — `Content-Security-Policy` with strict `frame-ancestors 'none'`, scoped `script-src`/`style-src`/`font-src`, `Permissions-Policy` on site worker
+- **Admin CORS** — `/v1/admin/*` routes in registry now return `Access-Control-Allow-Origin: https://registry.therealcool.site` instead of wildcard `*`
+
+#### Low — Correctness Fixes
+- **Risk gate** — `kairos-action` and `claude-execute` added to the risk classification table at `medium`; previously both defaulted to `high` (unknown action), which caused KAIROS workers to block their own daemon tasks
+- **Telemetry config** — removed `telemetry: boolean` from `CerebreXConfig` and defaults; the field was set to `true` but the implementation was commented out — misleading to users
+
+#### KAIROS — Real Execution Engine
+- **Structured daemon tasks** — daemon tick prompt updated to return `{ act, reasoning, task_type, task_payload }` instead of free-text `action` string; `task_type` must be one of the built-in handlers so it actually executes
+- **`memex-set` task type** — writes a key+content entry to the agent's MEMEX KV index
+- **`memex-get` task type** — reads a key (or full index) from the agent's MEMEX KV index
+- **`claude-execute` task type** — runs Claude Sonnet on a task description with optional context; optionally stores the result back to MEMEX via `storeKey`
+- **`kairos-action` re-dispatch** — if a `kairos-action` task carries a `task_type` + `task_payload`, the consumer re-queues it as the concrete type for proper execution
+- **ULTRAPLAN task types** — planning prompt now specifies only supported types (`fetch`, `memex-set`, `memex-get`, `claude-execute`, `echo`, `noop`) so generated plans actually execute
+
+---
+
 ## [0.9.3] — 2026-04-11
 
 ### Agent Test Runner + Docker Image
