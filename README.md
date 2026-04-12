@@ -21,7 +21,7 @@ The complete infrastructure layer for AI agents — in one CLI.
 ---
 
 > **Status: v0.9.3 — Agent test runner (`cerebrex test` — replay + assertions + fixture recording + CI mode)**
-> `npm install -g cerebrex` — or download a self-contained binary from [GitHub Releases](https://github.com/arealcoolco/CerebreX/releases) (no Node.js required)
+> `npm install -g cerebrex` · `docker pull ghcr.io/arealcoolco/cerebrex` · or download a self-contained binary from [GitHub Releases](https://github.com/arealcoolco/CerebreX/releases)
 >
 > **Live:** Registry UI → `https://registry.therealcool.site`
 > **Live:** Trace Explorer → `https://registry.therealcool.site/ui/trace`
@@ -103,6 +103,16 @@ All benchmarks                                     →  100% success rate
 ```bash
 npm install -g cerebrex
 cerebrex --help
+```
+
+Or via Docker (no Node.js or npm required):
+
+```bash
+docker pull ghcr.io/arealcoolco/cerebrex
+docker run --rm ghcr.io/arealcoolco/cerebrex --version
+
+# Mount a local directory to access spec files, configs, etc.
+docker run --rm -v "$HOME/.cerebrex:/root/.cerebrex" ghcr.io/arealcoolco/cerebrex test run
 ```
 
 Or build from source (requires [Bun](https://bun.sh)):

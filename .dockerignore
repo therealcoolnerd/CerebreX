@@ -1,0 +1,26 @@
+# Build outputs
+**/dist/
+**/node_modules/
+**/.turbo/
+
+# Python SDK
+sdks/
+
+# Cloudflare workers (not needed for CLI image)
+workers/
+
+# Benchmark suite
+benchmarks/
+
+# Docs / metadata
+*.md
+LICENSE
+.github/
+.vscode/
+*.log
+*.env
+.env*
+
+# Test fixtures
+**/*.test.yaml
+**/*.fixture.json

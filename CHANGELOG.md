@@ -8,6 +8,14 @@ This project follows [Semantic Versioning](https://semver.org/) and [Conventiona
 
 ## [0.9.3] — 2026-04-11
 
+### Agent Test Runner + Docker Image
+
+#### Docker — `ghcr.io/arealcoolco/cerebrex`
+- **Multi-stage Dockerfile** — `oven/bun:1-alpine` builder compiles a self-contained Linux x64 binary; final image is bare `alpine:3.19` + `ca-certificates` (~35MB)
+- **GitHub Actions workflow** (`docker.yml`) — publishes to GitHub Container Registry on every release; auto-tags `latest`, `0.9`, and `0.9.3`
+- **Usage:** `docker pull ghcr.io/arealcoolco/cerebrex` — no Node.js, no npm, no Bun required at runtime
+- **Volume mount:** `-v "$HOME/.cerebrex:/root/.cerebrex"` for persisting traces, test specs, and auth tokens
+
 ### Agent Test Runner — `cerebrex test`
 
 Structured trace replay and assertion engine for agent behaviour. Write test specs in YAML or JSON, replay against recorded or inline traces, assert on step counts, token usage, latency, tool calls, and output values — all without hitting a live model.
